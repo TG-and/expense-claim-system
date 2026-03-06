@@ -7,25 +7,29 @@ import {
   CheckSquare, 
   ShoppingCart, 
   Settings,
-  Bell,
   Search,
   Database,
   RefreshCw,
   Users,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useAuth } from '../App';
+import ProfileModal from '../pages/ProfileModal';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export default function Layout() {
+  const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const isFinance = location.pathname.startsWith('/finance');
   const isAdmin = location.pathname.startsWith('/admin');
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -191,22 +195,31 @@ export default function Layout() {
           </div>
           
           <div className="flex items-center gap-4">
-            <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg relative transition-colors">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-2 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </button>
             <div className="h-8 w-[1px] bg-slate-200"></div>
-            <div className="flex items-center gap-3 pl-2">
+            <button 
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center gap-3 pl-2 hover:bg-slate-50 rounded-lg transition-colors -mr-2 pr-2"
+            >
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-bold leading-none">{isFinance || isAdmin ? 'Alex Johnson' : 'Sarah Williams'}</p>
-                <p className="text-xs text-slate-500 mt-1">{isFinance || isAdmin ? 'Finance Lead' : 'Marketing'}</p>
+                <p className="text-sm font-bold leading-none">{user?.name || 'User'}</p>
+                <p className="text-xs text-slate-500 mt-1">{user?.department || 'Department'}</p>
               </div>
               <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold border-2 border-blue-200">
-                {isFinance || isAdmin ? 'AJ' : 'SW'}
+                {user?.avatar || 'U'}
               </div>
-            </div>
+            </button>
+            <button 
+              onClick={() => { logout(); navigate('/login'); }}
+              className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </header>
+
+        {/* Profile Modal */}
+        <ProfileModal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} />
 
         {/* Page Content */}
         <div className="flex-1 overflow-y-auto">

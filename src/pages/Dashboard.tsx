@@ -1,315 +1,442 @@
 import { useState, useEffect } from 'react';
-import { Download, Plus, DollarSign, Clock, Activity, CheckCircle2, ArrowRight } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Download, Plus, DollarSign, Clock, CheckCircle2, XCircle, AlertCircle, TrendingUp, Calendar, Receipt, ArrowUpRight, ArrowDownRight, Wallet, FileText, CreditCard, Utensils, Plane, Building, CheckSquare } from 'lucide-react';
+import { Link } from 'react-router-dom';
+
+interface Claim {
+  id: string;
+  description: string;
+  status: string;
+  total_amount: number;
+  currency: string;
+  created_at: string;
+  claimant_id: string;
+  items?: any[];
+}
+
+const categoryIcons: Record<string, any> = {
+  'Travel': Plane,
+  'Dinner': Utensils,
+  'Entertainment': CreditCard,
+  'Office Supplies': FileText,
+  'Transportation': DollarSign,
+  'Accommodation': Building,
+  'Other': Receipt,
+};
+
+const categoryColors: Record<string, string> = {
+  'Travel': 'bg-blue-500',
+  'Dinner': 'bg-orange-500',
+  'Entertainment': 'bg-pink-500',
+  'Office Supplies': 'bg-purple-500',
+  'Transportation': 'bg-green-500',
+  'Accommodation': 'bg-indigo-500',
+  'Other': 'bg-slate-500',
+};
 
 export default function Dashboard() {
-  const [requests, setRequests] = useState<any[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchRequests = () => {
-    fetch('/api/requests')
+  useEffect(() => {
+    fetch('/api/claims')
       .then(res => res.json())
       .then(data => {
-        setRequests(data);
+        setClaims(data.filter((c: Claim) => c.claimant_id === 'u2'));
         setLoading(false);
       });
-  };
-
-  useEffect(() => {
-    fetchRequests();
   }, []);
 
-  const activeRequests = requests.filter(r => r.status !== 'Approved' && r.status !== 'Rejected');
-  const recentRequests = requests.slice(0, 5);
-  const totalReimbursed = requests
-    .filter(r => r.status === 'Approved')
-    .reduce((sum, r) => sum + r.amount, 0);
+  const [pendingApprovals, setPendingApprovals] = useState<Claim[]>([]);
+
+  useEffect(() => {
+    fetch('/api/claims')
+      .then(res => res.json())
+      .then(data => {
+        const pending = data.filter((c: Claim) => 
+          c.status === 'Pending' || c.status === 'Pending Finance'
+        );
+        setPendingApprovals(pending);
+      });
+  }, []);
+
+  const stats = {
+    total: claims.length,
+    pending: claims.filter(c => c.status === 'Pending' || c.status === 'Pending Finance').length,
+    approved: claims.filter(c => c.status === 'Approved').length,
+    totalAmount: claims.reduce((sum, c) => sum + c.total_amount, 0),
+    approvedAmount: claims.filter(c => c.status === 'Approved').reduce((sum, c) => sum + c.total_amount, 0),
+  };
+
+  const categoryBreakdown: Record<string, { amount: number; count: number }> = {};
+  
+  claims.forEach((claim) => {
+    claim.items?.forEach((item: any) => {
+      const type = item.type || 'Other';
+      if (!categoryBreakdown[type]) {
+        categoryBreakdown[type] = { amount: 0, count: 0 };
+      }
+      categoryBreakdown[type].amount += item.amount;
+      categoryBreakdown[type].count += 1;
+    });
+  });
+
+  const categories: [string, { amount: number; count: number }][] = Object.entries(categoryBreakdown)
+    .sort((a, b) => b[1].amount - a[1].amount);
+
+  const maxCategoryAmount = Math.max(...categories.map(([, data]) => data.amount), 1);
+
+  const recentClaims = [...claims]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 5);
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case 'Approved': return { color: 'text-emerald-600', bg: 'bg-emerald-100', icon: CheckCircle2, label: 'Approved' };
+      case 'Rejected': return { color: 'text-red-600', bg: 'bg-red-100', icon: XCircle, label: 'Rejected' };
+      case 'Pending': return { color: 'text-amber-600', bg: 'bg-amber-100', icon: Clock, label: 'Pending' };
+      case 'Pending Finance': return { color: 'text-amber-600', bg: 'bg-amber-100', icon: AlertCircle, label: 'Pending Finance' };
+      case 'Draft': return { color: 'text-slate-600', bg: 'bg-slate-100', icon: FileText, label: 'Draft' };
+      default: return { color: 'text-slate-600', bg: 'bg-slate-100', icon: Clock, label: status };
+    }
+  };
 
   return (
-    <div className="p-8">
-      {/* Welcome Section */}
-      <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-black tracking-tight text-slate-900">Dashboard</h2>
-          <p className="text-slate-500 mt-1">Review and manage your organization's expenditure flow.</p>
-        </div>
-        <div className="flex gap-3">
-          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-all shadow-sm">
-            <Download className="w-4 h-4" />
-            Export Data
-          </button>
-          <Link to="/claims/new" className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-600/30 transition-all">
-            <Plus className="w-4 h-4" />
-            New Claim
-          </Link>
-        </div>
-      </div>
-
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {/* My Claims List */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col h-full">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">My Claims</h3>
-            <Link to="/reimbursements" className="text-blue-600 text-xs font-bold hover:underline">View All</Link>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-3">
-            {requests.filter(r => r.claimant_id === 'u2').slice(0, 3).map(claim => (
-              <Link to={`/requests/${claim.id}`} key={claim.id} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded-lg transition-colors">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{claim.description}</p>
-                  <p className="text-xs text-slate-500">{claim.status}</p>
-                </div>
-                <span className="text-sm font-bold">${claim.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-              </Link>
-            ))}
-            {requests.filter(r => r.claimant_id === 'u2').length === 0 && (
-              <p className="text-sm text-slate-500">No claims found.</p>
-            )}
-          </div>
-        </div>
-
-        <StatCard 
-          icon={Clock} 
-          title="Pending Approvals" 
-          value={activeRequests.length.toString()} 
-          trend="Static" 
-          trendColor="text-slate-600 bg-slate-100" 
-          iconBg="bg-amber-100 text-amber-600"
-        />
-
-        {/* My Approvals List */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col h-full">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">My Approvals</h3>
-            <Link to="/approvals" className="text-blue-600 text-xs font-bold hover:underline">View All</Link>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-3">
-            {activeRequests.slice(0, 3).map(req => (
-              <Link to={`/requests/${req.id}`} key={req.id} className="flex justify-between items-center p-2 hover:bg-slate-50 rounded-lg transition-colors">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{req.description}</p>
-                  <p className="text-xs text-slate-500">{req.claimant_name}</p>
-                </div>
-                <span className="text-sm font-bold">${req.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-              </Link>
-            ))}
-            {activeRequests.length === 0 && (
-              <p className="text-sm text-slate-500">No pending approvals.</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Active Claim Tracking */}
+    <div className="p-4 sm:p-8 min-h-screen bg-slate-50">
+      {/* Header */}
       <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h5 className="font-bold text-slate-900">Active Claim Tracking</h5>
-          <button className="text-blue-600 text-sm font-bold hover:underline">View All Active</button>
-        </div>
-        
-        <div className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide">
-          {loading ? (
-            <div className="text-sm text-slate-500">Loading active claims...</div>
-          ) : activeRequests.length === 0 ? (
-            <div className="text-sm text-slate-500">No active claims.</div>
-          ) : (
-            activeRequests.map(req => (
-              <TrackingCard 
-                key={req.id}
-                title={req.description} 
-                id={`#${req.id}`} 
-                amount={`$${req.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} 
-                status={req.status} 
-                statusColor={getStatusColor(req.status)}
-                step={req.step}
-              />
-            ))
-          )}
-        </div>
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900">Welcome back! 👋</h1>
+        <p className="text-slate-500 mt-1">Here's an overview of your expense claims.</p>
       </div>
 
-      {/* Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Activity Table */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-          <div className="p-6 border-b border-slate-200 flex justify-between items-center">
-            <h5 className="font-bold text-slate-900">Recent Requests</h5>
-            <button className="text-blue-600 text-sm font-bold hover:underline">View All</button>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <StatCard
+          title="Total Claims"
+          value={stats.total.toString()}
+          icon={Receipt}
+          trend="+12%"
+          trendUp={true}
+          color="blue"
+        />
+        <StatCard
+          title="Pending"
+          value={stats.pending.toString()}
+          icon={Clock}
+          trend="3 new"
+          trendUp={false}
+          color="amber"
+        />
+        <StatCard
+          title="Approved"
+          value={stats.approved.toString()}
+          icon={CheckCircle2}
+          trend="+8%"
+          trendUp={true}
+          color="emerald"
+        />
+        <StatCard
+          title="Total Reimbursed"
+          value={`$${stats.approvedAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+          icon={DollarSign}
+          trend="+15%"
+          trendUp={true}
+          color="purple"
+        />
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - 2/3 width */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Spending by Category */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-bold text-slate-900">Spending by Category</h3>
+              <button className="text-sm text-slate-500 hover:text-slate-700">View Report</button>
+            </div>
+            
+            {categories.length > 0 ? (
+              <div className="space-y-4">
+                {categories.map(([category, data]) => {
+                  const Icon = categoryIcons[category] || Receipt;
+                  const bgColor = categoryColors[category] || categoryColors['Other'];
+                  const percentage = (data.amount / maxCategoryAmount) * 100;
+                  
+                  return (
+                    <div key={category}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl ${bgColor} flex items-center justify-center`}>
+                            <Icon className="w-5 h-5 text-white" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-slate-900">{category}</p>
+                            <p className="text-xs text-slate-500">{data.count} claims</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-bold text-slate-900">${data.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                          <p className="text-xs text-slate-500">{Math.round((data.amount / stats.totalAmount) * 100)}%</p>
+                        </div>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full ${bgColor} rounded-full transition-all duration-500`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-slate-500">
+                <Receipt className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                <p>No expense data yet</p>
+              </div>
+            )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Vendor / Item</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Category</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {loading ? (
-                  <tr><td colSpan={4} className="px-6 py-4 text-sm text-slate-500 text-center">Loading...</td></tr>
-                ) : recentRequests.map(req => (
-                  <TableRow 
-                    key={req.id}
-                    id={req.id}
-                    vendor={req.vendor_name || 'Internal'} 
-                    item={req.description} 
-                    category={req.type} 
-                    amount={`$${req.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} 
-                    status={req.status} 
-                    statusColor={getStatusColor(req.status)} 
-                  />
+
+          {/* Recent Claims */}
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">Recent Claims</h3>
+              <Link to="/reimbursements" className="text-sm text-blue-600 font-semibold hover:underline">View All</Link>
+            </div>
+            
+            <div className="divide-y divide-slate-100">
+              {loading ? (
+                <div className="p-8 text-center text-slate-500">Loading...</div>
+              ) : recentClaims.length > 0 ? (
+                recentClaims.map(claim => {
+                  const statusConfig = getStatusConfig(claim.status);
+                  const StatusIcon = statusConfig.icon;
+                  
+                  return (
+                    <Link 
+                      key={claim.id} 
+                      to={`/claims/${claim.id}`}
+                      className="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
+                          <Receipt className="w-6 h-6 text-slate-500" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{claim.description}</p>
+                          <p className="text-xs text-slate-500">{claim.id} • {formatDate(claim.created_at)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="font-bold text-slate-900">${claim.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                          <p className="text-xs text-slate-500">{claim.items?.length || 0} items</p>
+                        </div>
+                        <span className={`px-3 py-1.5 text-xs font-bold rounded-full ${statusConfig.bg} ${statusConfig.color} flex items-center gap-1`}>
+                          <StatusIcon className="w-3 h-3" />
+                          {statusConfig.label}
+                        </span>
+                      </div>
+                    </Link>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-slate-500">
+                  <Receipt className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p>No claims yet</p>
+                  <Link to="/claims/new" className="text-blue-600 font-semibold hover:underline text-sm mt-2 inline-block">
+                    Create your first claim
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column - 1/3 width */}
+        <div className="space-y-6">
+          {/* Pending Approvals */}
+          {pendingApprovals.length > 0 && (
+            <div className="bg-white border border-amber-200 rounded-2xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-900">Pending Approvals</h3>
+                <Link to="/approvals" className="text-sm text-amber-600 font-semibold hover:underline">View All</Link>
+              </div>
+              <div className="space-y-3">
+                {pendingApprovals.slice(0, 3).map(claim => (
+                  <Link 
+                    key={claim.id}
+                    to={`/approvals/${claim.id}`}
+                    className="flex items-center justify-between p-3 bg-amber-50 rounded-xl hover:bg-amber-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+                        <Receipt className="w-5 h-5 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900 truncate max-w-[150px]">{claim.description}</p>
+                        <p className="text-xs text-slate-500">{claim.claimant_name}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-slate-900">${claim.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      <p className="text-xs text-amber-600 font-medium">{claim.status}</p>
+                    </div>
+                  </Link>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
+            <h3 className="text-lg font-bold mb-4">Quick Actions</h3>
+            <div className="space-y-3">
+              <Link 
+                to="/claims/new"
+                className="flex items-center justify-between p-4 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <Plus className="w-5 h-5" />
+                  <span className="font-semibold">New Claim</span>
+                </div>
+                <ArrowUpRight className="w-4 h-4 opacity-60" />
+              </Link>
+              <Link 
+                to="/reimbursements"
+                className="flex items-center justify-between p-4 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <FileText className="w-5 h-5" />
+                  <span className="font-semibold">View History</span>
+                </div>
+                <ArrowUpRight className="w-4 h-4 opacity-60" />
+              </Link>
+            </div>
+          </div>
+
+          {/* Status Overview */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Status Overview</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                  <span className="text-sm text-slate-600">Pending Approval</span>
+                </div>
+                <span className="font-bold text-slate-900">{stats.pending}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                  <span className="text-sm text-slate-600">Approved</span>
+                </div>
+                <span className="font-bold text-slate-900">{stats.approved}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-slate-400"></div>
+                  <span className="text-sm text-slate-600">Draft</span>
+                </div>
+                <span className="font-bold text-slate-900">{claims.filter(c => c.status === 'Draft').length}</span>
+              </div>
+            </div>
+
+            {/* Progress Ring */}
+            <div className="mt-6 pt-6 border-t border-slate-100">
+              <div className="flex items-center justify-center">
+                <div className="relative w-32 h-32">
+                  <svg className="w-full h-full transform -rotate-90">
+                    <circle
+                      cx="64"
+                      cy="64"
+                      r="56"
+                      stroke="currentColor"
+                      strokeWidth="12"
+                      fill="none"
+                      className="text-slate-100"
+                    />
+                    <circle
+                      cx="64"
+                      cy="64"
+                      r="56"
+                      stroke="currentColor"
+                      strokeWidth="12"
+                      fill="none"
+                      className="text-emerald-500"
+                      strokeDasharray={`${(stats.approved / Math.max(stats.total, 1)) * 352} 352`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-2xl font-black text-slate-900">
+                      {stats.total > 0 ? Math.round((stats.approved / stats.total) * 100) : 0}%
+                    </span>
+                    <span className="text-xs text-slate-500">Approved</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tips */}
+          <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100 rounded-2xl p-6">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center shrink-0">
+                <TrendingUp className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-900 mb-1">Tip of the day</h4>
+                <p className="text-sm text-slate-600">Upload receipts when making expenses for faster processing and approval.</p>
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* Quick Approvals */}
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-          <div className="p-6 border-b border-slate-200">
-            <h5 className="font-bold text-slate-900">Team Approvals Required</h5>
-          </div>
-          <div className="p-6 space-y-4">
-            {loading ? (
-              <div className="text-sm text-slate-500">Loading...</div>
-            ) : activeRequests.slice(0, 3).map(req => (
-              <ApprovalItem 
-                key={req.id}
-                id={req.id}
-                name={req.claimant_name} 
-                item={req.description} 
-                amount={`$${req.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} 
-                initials={req.avatar} 
-                color="bg-blue-100 text-blue-700" 
-                onAction={fetchRequests}
-              />
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
 }
 
-function getStatusColor(status: string) {
-  switch(status) {
-    case 'Approved': return 'bg-emerald-100 text-emerald-700';
-    case 'Rejected': return 'bg-red-100 text-red-700';
-    case 'Pending': return 'bg-slate-100 text-slate-700';
-    case 'Pending Finance': return 'bg-amber-100 text-amber-700';
-    case 'Processing Payment': return 'bg-blue-100 text-blue-700';
-    default: return 'bg-slate-100 text-slate-700';
-  }
-}
-
-function StatCard({ icon: Icon, title, value, trend, trendColor, iconBg }: any) {
-  return (
-    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-      <div className="flex justify-between items-start mb-4">
-        <div className={`p-2 rounded-lg ${iconBg}`}>
-          <Icon className="w-6 h-6" />
-        </div>
-        <span className={`text-xs font-bold px-2 py-1 rounded-full ${trendColor}`}>{trend}</span>
-      </div>
-      <p className="text-slate-500 text-sm font-medium">{title}</p>
-      <h3 className="text-2xl font-bold mt-1 text-slate-900">{value}</h3>
-    </div>
-  );
-}
-
-function TrackingCard({ title, id, amount, status, statusColor, step, opacity = "" }: any) {
-  const navigate = useNavigate();
-  // Remove the # from id for the URL
-  const reqId = id.startsWith('#') ? id.substring(1) : id;
-  return (
-    <div onClick={() => navigate(`/requests/${reqId}`)} className={`min-w-[320px] bg-white border border-slate-200 p-5 rounded-xl shadow-sm transition-all cursor-pointer hover:shadow-md hover:border-blue-300 ${opacity}`}>
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <p className="text-sm font-bold text-slate-900 truncate max-w-[180px]">{title}</p>
-          <p className="text-xs text-slate-500 mt-1">ID: {id} • {amount}</p>
-        </div>
-        <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded-md ${statusColor}`}>{status}</span>
-      </div>
-      
-      <div className="flex justify-between items-center relative">
-        <div className="absolute top-3 left-0 w-full h-[2px] bg-slate-100 -z-10"></div>
-        <div className="absolute top-3 left-0 h-[2px] bg-emerald-500 -z-10 transition-all" style={{ width: step === 1 ? '0%' : step === 2 ? '50%' : '100%' }}></div>
-        
-        <StepItem label="Submitted" active={step >= 1} completed={step > 1} />
-        <StepItem label="Finance" active={step >= 2} completed={step > 2} />
-        <StepItem label="Payment" active={step >= 3} completed={step > 3} />
-      </div>
-    </div>
-  );
-}
-
-function StepItem({ label, active, completed }: { label: string, active: boolean, completed: boolean }) {
-  return (
-    <div className="flex flex-col items-center bg-white px-1">
-      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
-        completed ? 'bg-emerald-500 text-white' : 
-        active ? 'bg-blue-600 text-white ring-4 ring-blue-100' : 
-        'bg-slate-100 text-slate-400'
-      }`}>
-        {completed ? <CheckCircle2 className="w-4 h-4" /> : active ? '2' : '3'}
-      </div>
-      <span className={`text-[10px] mt-2 font-medium ${active ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>{label}</span>
-    </div>
-  );
-}
-
-function TableRow({ id, vendor, item, category, amount, status, statusColor }: any) {
-  const navigate = useNavigate();
-  return (
-    <tr onClick={() => navigate(`/requests/${id}`)} className="hover:bg-slate-50 transition-colors group cursor-pointer">
-      <td className="px-6 py-4">
-        <p className="font-semibold text-slate-900">{vendor}</p>
-        <p className="text-xs text-slate-500">{item}</p>
-      </td>
-      <td className="px-6 py-4 text-sm text-slate-600">{category}</td>
-      <td className="px-6 py-4 font-bold text-slate-900">{amount}</td>
-      <td className="px-6 py-4">
-        <span className={`px-3 py-1 text-xs font-bold rounded-full ${statusColor}`}>{status}</span>
-      </td>
-    </tr>
-  );
-}
-
-function ApprovalItem({ id, name, item, amount, initials, color, onAction }: any) {
-  const handleApprove = async () => {
-    await fetch(`/api/requests/${id}/approve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approver_id: 'u1', comments: 'Approved from dashboard' })
-    });
-    onAction();
-  };
-
-  const handleReject = async () => {
-    await fetch(`/api/requests/${id}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approver_id: 'u1', comments: 'Rejected from dashboard' })
-    });
-    onAction();
+function StatCard({ title, value, icon: Icon, trend, trendUp, color }: {
+  title: string;
+  value: string;
+  icon: any;
+  trend: string;
+  trendUp: boolean;
+  color: 'blue' | 'amber' | 'emerald' | 'purple';
+}) {
+  const colorClasses = {
+    blue: 'bg-blue-50 text-blue-600',
+    amber: 'bg-amber-50 text-amber-600',
+    emerald: 'bg-emerald-50 text-emerald-600',
+    purple: 'bg-purple-50 text-purple-600',
   };
 
   return (
-    <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
-      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${color}`}>
-        {initials}
-      </div>
-      <div className="flex-1">
-        <p className="text-sm font-bold text-slate-900">{name}</p>
-        <p className="text-xs text-slate-500">{item} • {amount}</p>
-        <div className="flex gap-2 mt-3">
-          <button onClick={handleApprove} className="flex-1 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-all shadow-sm">Approve</button>
-          <button onClick={handleReject} className="flex-1 py-1.5 border border-slate-200 bg-white text-slate-700 text-xs font-bold rounded-lg hover:bg-slate-50 transition-all shadow-sm">Deny</button>
+    <div className="bg-white p-5 sm:p-6 rounded-2xl border border-slate-200 shadow-sm">
+      <div className="flex items-start justify-between mb-4">
+        <div className={`p-2.5 rounded-xl ${colorClasses[color]}`}>
+          <Icon className="w-5 h-5" />
+        </div>
+        <div className={`flex items-center gap-1 text-xs font-bold ${trendUp ? 'text-emerald-600' : 'text-amber-600'}`}>
+          {trendUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+          {trend}
         </div>
       </div>
+      <p className="text-sm text-slate-500 font-medium">{title}</p>
+      <p className="text-2xl font-black text-slate-900 mt-1">{value}</p>
     </div>
   );
 }
