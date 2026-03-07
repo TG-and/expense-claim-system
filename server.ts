@@ -4,6 +4,7 @@ import { initDb, db } from "./src/db/index.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
@@ -31,6 +32,7 @@ async function startServer() {
   const app = express();
   const PORT = 3008;
 
+  app.use(cors());
   app.use(express.json());
 
   // Auth middleware - extract user from header (set by frontend)
