@@ -53,22 +53,28 @@ async function startServer() {
 
   // API routes
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
   // Auth routes
   app.post("/api/auth/login", (req, res) => {
+    console.log('Login attempt:', req.body.email);
     const { email, password } = req.body;
     
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
-    
-    if (!user || !bcrypt.compareSync(password, user.password)) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
+    try {
+      const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+      
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+      
+      if (!bcrypt.compareSync(password, user.password)) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
 
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
@@ -87,6 +93,10 @@ async function startServer() {
         avatar: user.avatar
       }
     });
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ error: "Internal server error" });
+    }
   });
 
   // Middleware to verify JWT token
