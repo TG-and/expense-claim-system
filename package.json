@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
+    "build:server": "tsc server.ts --outDir . --esModuleInterop --module commonjs --moduleResolution node --target es2020",
+    "build:vercel": "npm run build && npm run build:server",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "start": "node server.ts",
+    "start": "node server.js",
     "test": "jest --config jest.config.json",
     "test:coverage": "jest --config jest.config.json --coverage",
     "test:e2e": "playwright test",
