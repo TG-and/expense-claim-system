@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, Clock, XCircle, AlertCircle, Receipt, FileText, User, Building2, MessageSquare, Send, Check, Ban } from 'lucide-react';
+import { useApiFetch } from '../App';
 
 const categoryConfig: Record<string, { icon: string; color: string }> = {
   'Travel': { icon: '✈️', color: 'bg-blue-100' },
@@ -13,6 +14,7 @@ const categoryConfig: Record<string, { icon: string; color: string }> = {
 };
 
 export default function ApprovalDetails() {
+  const apiFetch = useApiFetch();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [claim, setClaim] = useState<any>(null);
@@ -21,29 +23,29 @@ export default function ApprovalDetails() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/claims/${id}`)
+    apiFetch(`/api/claims/${id}`)
       .then(res => res.json())
       .then(data => {
         setClaim(data);
         setLoading(false);
       })
       .catch(console.error);
-  }, [id]);
+  }, [id, apiFetch]);
 
   const handleAction = async (action: 'approve' | 'reject') => {
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/claims/${id}/${action}`, {
+      const res = await apiFetch(`/api/claims/${id}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          approver_id: 'u2',
-          comments
-        }),
+        body: JSON.stringify({ comments }),
       });
       
       if (res.ok) {
         navigate('/approvals');
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Action failed');
       }
     } catch (error) {
       console.error(error);

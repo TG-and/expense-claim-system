@@ -32,6 +32,7 @@ export default function Login({ onLogin }: LoginProps) {
         return;
       }
 
+      localStorage.setItem('expense_token', data.token);
       onLogin(data.user);
       navigate('/');
     } catch (err) {
@@ -63,7 +64,7 @@ export default function Login({ onLogin }: LoginProps) {
             <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4">
               <LogIn className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-white">Expense Claim System</h1>
+            <h1 className="text-2xl font-bold text-white">ClaimFlow</h1>
             <p className="text-blue-100 mt-2">Sign in to your account</p>
           </div>
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Download, Plus, DollarSign, Clock, CheckCircle2, XCircle, AlertCircle, TrendingUp, Calendar, Receipt, ArrowUpRight, ArrowDownRight, Wallet, FileText, CreditCard, Utensils, Plane, Building, CheckSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useApiFetch } from '../App';
 
 interface Claim {
   id: string;
@@ -34,30 +35,28 @@ const categoryColors: Record<string, string> = {
 };
 
 export default function Dashboard() {
+  const apiFetch = useApiFetch();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/claims')
+    apiFetch('/api/claims')
       .then(res => res.json())
       .then(data => {
-        setClaims(data.filter((c: Claim) => c.claimant_id === 'u2'));
+        setClaims(data);
         setLoading(false);
       });
-  }, []);
+  }, [apiFetch]);
 
   const [pendingApprovals, setPendingApprovals] = useState<Claim[]>([]);
 
   useEffect(() => {
-    fetch('/api/claims')
+    apiFetch('/api/approvals')
       .then(res => res.json())
       .then(data => {
-        const pending = data.filter((c: Claim) => 
-          c.status === 'Pending' || c.status === 'Pending Finance'
-        );
-        setPendingApprovals(pending);
+        setPendingApprovals(data);
       });
-  }, []);
+  }, [apiFetch]);
 
   const stats = {
     total: claims.length,
@@ -107,6 +106,8 @@ export default function Dashboard() {
       case 'Rejected': return { color: 'text-red-600', bg: 'bg-red-100', icon: XCircle, label: 'Rejected' };
       case 'Pending': return { color: 'text-amber-600', bg: 'bg-amber-100', icon: Clock, label: 'Pending' };
       case 'Pending Finance': return { color: 'text-amber-600', bg: 'bg-amber-100', icon: AlertCircle, label: 'Pending Finance' };
+      case 'Processing Payment': return { color: 'text-blue-600', bg: 'bg-blue-100', icon: Clock, label: 'Processing Payment' };
+      case 'Paid': return { color: 'text-green-600', bg: 'bg-green-100', icon: CheckCircle2, label: 'Paid' };
       case 'Draft': return { color: 'text-slate-600', bg: 'bg-slate-100', icon: FileText, label: 'Draft' };
       default: return { color: 'text-slate-600', bg: 'bg-slate-100', icon: Clock, label: status };
     }
@@ -299,33 +300,6 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-
-          {/* Quick Actions */}
-          <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-6 text-white">
-            <h3 className="text-lg font-bold mb-4">Quick Actions</h3>
-            <div className="space-y-3">
-              <Link 
-                to="/claims/new"
-                className="flex items-center justify-between p-4 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Plus className="w-5 h-5" />
-                  <span className="font-semibold">New Claim</span>
-                </div>
-                <ArrowUpRight className="w-4 h-4 opacity-60" />
-              </Link>
-              <Link 
-                to="/reimbursements"
-                className="flex items-center justify-between p-4 bg-white/10 rounded-xl hover:bg-white/20 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <FileText className="w-5 h-5" />
-                  <span className="font-semibold">View History</span>
-                </div>
-                <ArrowUpRight className="w-4 h-4 opacity-60" />
-              </Link>
-            </div>
-          </div>
 
           {/* Status Overview */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">

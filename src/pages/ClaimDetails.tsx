@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, Clock, XCircle, AlertCircle, RotateCcw, FileText, Download, Eye, Edit3, Trash2, AlertTriangle } from 'lucide-react';
+import { useApiFetch } from '../App';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
   'Approved': { color: 'text-emerald-700', bg: 'bg-emerald-100', icon: CheckCircle2, label: 'Approved' },
   'Rejected': { color: 'text-red-700', bg: 'bg-red-100', icon: XCircle, label: 'Rejected' },
   'Pending': { color: 'text-amber-700', bg: 'bg-amber-100', icon: Clock, label: 'Pending' },
-  'Pending Finance': { color: 'text-amber-700', bg: 'bg-amber-100', icon: AlertClock, label: 'Pending Finance' },
-  'Processing Payment': { color: 'text-blue-700', bg: 'bg-blue-100', icon: Clock, label: 'Processing' },
+  'Pending Finance': { color: 'text-amber-700', bg: 'bg-amber-100', icon: AlertCircle, label: 'Pending Finance' },
+  'Processing Payment': { color: 'text-blue-700', bg: 'bg-blue-100', icon: Clock, label: 'Processing Payment' },
+  'Paid': { color: 'text-green-700', bg: 'bg-green-100', icon: CheckCircle2, label: 'Paid' },
   'Draft': { color: 'text-slate-500', bg: 'bg-slate-100', icon: Clock, label: 'Draft' },
 };
 
@@ -81,15 +83,39 @@ function ConfirmModal({
 }
 
 export default function ClaimDetails() {
+  const apiFetch = useApiFetch();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [claim, setClaim] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [workflowHistory, setWorkflowHistory] = useState<any>(null);
+
+  const fetchWorkflowHistory = useCallback(async () => {
+    if (!claim?.id) return;
+    try {
+      const token = localStorage.getItem('expense_token');
+      const res = await fetch(`/api/workflow/instances/${claim.id}/history`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWorkflowHistory(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch workflow history:', error);
+    }
+  }, [claim?.id]);
 
   useEffect(() => {
-    fetch(`/api/claims/${id}`)
+    if (claim?.id) {
+      fetchWorkflowHistory();
+    }
+  }, [claim?.id, fetchWorkflowHistory]);
+
+  useEffect(() => {
+    apiFetch(`/api/claims/${id}`)
       .then(res => res.json())
       .then(data => {
         setClaim(data);
@@ -99,10 +125,10 @@ export default function ClaimDetails() {
         console.error(err);
         setLoading(false);
       });
-  }, [id]);
+  }, [id, apiFetch]);
 
   const refreshClaim = () => {
-    fetch(`/api/claims/${id}`)
+    apiFetch(`/api/claims/${id}`)
       .then(res => res.json())
       .then(data => setClaim(data));
   };
@@ -119,7 +145,7 @@ export default function ClaimDetails() {
 
   const handleWithdraw = async () => {
     try {
-      await fetch(`/api/claims/${id}/withdraw`, { method: 'POST' });
+      await apiFetch(`/api/claims/${id}/withdraw`, { method: 'POST' });
       refreshClaim();
       setShowWithdrawModal(false);
     } catch (error) {
@@ -129,7 +155,7 @@ export default function ClaimDetails() {
 
   const handleDelete = async () => {
     try {
-      await fetch(`/api/claims/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/claims/${id}`, { method: 'DELETE' });
       navigate('/reimbursements');
     } catch (error) {
       console.error('Failed to delete:', error);
@@ -157,13 +183,48 @@ export default function ClaimDetails() {
   const canWithdraw = claim.status === 'Pending' || claim.status === 'Pending Finance';
   const isDraft = claim.status === 'Draft';
 
-  const approvalSteps = [
-    { step: 1, title: 'Submitted', description: 'Claim submitted for approval' },
-    { step: 2, title: 'Manager Review', description: 'Waiting for manager approval' },
-    { step: 3, title: 'Finance Review', description: 'Finance team review' },
-    { step: 4, title: 'Payment', description: 'Payment processing' },
-  ];
+  const getApprovalStepsFromWorkflow = () => {
+    if (workflowHistory?.tasks?.length > 0) {
+      const steps = workflowHistory.tasks.map((task: any, index: number) => {
+        let desc = '';
+        if (task.status === 'pending') {
+          desc = task.assignee_name ? `Waiting for ${task.assignee_name}` : 'Waiting for approval';
+        } else if (task.status === 'approved') {
+          desc = `Approved by ${task.assignee_name || 'Approver'}`;
+        } else if (task.status === 'rejected') {
+          desc = 'Rejected';
+        }
+        
+        return {
+          step: index + 1,
+          title: task.node_label || `Step ${index + 1}`,
+          description: desc,
+          status: task.status,
+          assignee_name: task.assignee_name
+        };
+      });
+      
+      if (workflowHistory.instance?.status === 'running') {
+        steps.push({
+          step: steps.length + 1,
+          title: 'Payment',
+          description: 'Payment processing',
+          status: 'pending'
+        });
+      }
+      
+      return steps;
+    }
+    
+    return [
+      { step: 1, title: 'Submitted', description: 'Claim submitted for approval', status: 'completed' },
+      { step: 2, title: 'Manager Review', description: 'Waiting for manager approval', status: claim.step >= 2 ? 'approved' : 'pending' },
+      { step: 3, title: 'Finance Review', description: 'Finance team review', status: claim.step >= 3 ? 'approved' : 'pending' },
+      { step: 4, title: 'Payment', description: 'Payment processing', status: claim.step >= 4 ? 'approved' : 'pending' },
+    ];
+  };
 
+  const approvalSteps = getApprovalStepsFromWorkflow();
   const currentStep = claim.step || 1;
 
   return (
@@ -357,30 +418,32 @@ export default function ClaimDetails() {
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
             <h3 className="text-lg font-bold text-slate-900 mb-4">Approval Progress</h3>
             <div className="space-y-0">
-              {approvalSteps.map((step, index) => {
-                const isCompleted = currentStep > step.step;
-                const isCurrent = currentStep === step.step;
-                const isPending = currentStep < step.step;
+              {approvalSteps.map((step: any, index: number) => {
+                const isCompleted = step.status === 'approved';
+                const isRejected = step.status === 'rejected';
+                const isPending = step.status === 'pending';
                 
                 return (
                   <div key={step.step} className="relative flex items-start gap-4 pb-6 last:pb-0">
                     {index < approvalSteps.length - 1 && (
                       <div className={`absolute left-4 top-10 bottom-0 w-0.5 -translate-x-1/2 ${
-                        isCompleted ? 'bg-emerald-500' : 'bg-slate-200'
+                        isCompleted ? 'bg-emerald-500' : isRejected ? 'bg-red-500' : 'bg-slate-200'
                       }`}></div>
                     )}
                     
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 z-10 ${
                       isCompleted ? 'bg-emerald-500 text-white' :
-                      isCurrent ? 'bg-blue-600 text-white ring-4 ring-blue-100' :
+                      isRejected ? 'bg-red-500 text-white' :
+                      isPending ? 'bg-blue-600 text-white ring-4 ring-blue-100' :
                       'bg-slate-100 text-slate-400'
                     }`}>
-                      {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : step.step}
+                      {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : 
+                       isRejected ? <XCircle className="w-4 h-4" /> : step.step}
                     </div>
                     
                     <div className="flex-1 pt-0.5">
                       <p className={`font-semibold text-sm ${
-                        isPending ? 'text-slate-400' : 'text-slate-900'
+                        isPending ? 'text-slate-900' : isRejected ? 'text-red-600' : 'text-slate-900'
                       }`}>
                         {step.title}
                       </p>

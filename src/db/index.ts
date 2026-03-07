@@ -1,9 +1,12 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 
 const dbPath = path.resolve(process.cwd(), 'data.db');
 
 export const db = new Database(dbPath);
+
+const hashPassword = (password: string) => bcrypt.hashSync(password, 10);
 
 export function initDb() {
   db.exec(`
@@ -15,7 +18,65 @@ export function initDb() {
       role TEXT NOT NULL,
       department TEXT,
       company_id TEXT,
-      avatar TEXT
+      avatar TEXT,
+      manager_id TEXT,
+      job_title TEXT,
+      employee_number TEXT UNIQUE,
+      hire_date DATE,
+      cost_center TEXT,
+      location TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (manager_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS departments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT UNIQUE NOT NULL,
+      parent_id TEXT,
+      manager_id TEXT,
+      head_count INTEGER DEFAULT 0,
+      budget REAL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS approval_levels (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      level_order INTEGER NOT NULL,
+      approver_type TEXT NOT NULL,
+      approver_role TEXT,
+      approver_department TEXT,
+      approver_user_id TEXT,
+      condition_type TEXT,
+      condition_value REAL,
+      workflow_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT,
+      link TEXT,
+      is_read INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS hr_sync_log (
+      id TEXT PRIMARY KEY,
+      sync_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      records_processed INTEGER DEFAULT 0,
+      records_failed INTEGER DEFAULT 0,
+      error_message TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME
     );
 
     CREATE TABLE IF NOT EXISTS companies (
@@ -86,6 +147,8 @@ export function initDb() {
       is_active INTEGER DEFAULT 1,
       nodes TEXT,
       edges TEXT,
+      bpmn_xml TEXT,
+      version INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -128,6 +191,33 @@ export function initDb() {
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (instance_id) REFERENCES workflow_instances(id)
     );
+
+    CREATE TABLE IF NOT EXISTS workflow_tasks (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      node_label TEXT,
+      assignee_id TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      comments TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME,
+      FOREIGN KEY (instance_id) REFERENCES workflow_instances(id),
+      FOREIGN KEY (assignee_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      details TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Only seed data if tables are empty (preserve existing data)
@@ -136,13 +226,32 @@ export function initDb() {
     return; // Data already exists, skip seeding
   }
 
-  // Seed data
-  const insertUser = db.prepare('INSERT INTO users (id, name, email, password, role, department, company_id, avatar) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-  insertUser.run('u1', 'Alex Johnson', 'alex@example.com', 'password123', 'Finance Lead', 'Finance', 'c1', 'AJ');
-  insertUser.run('u2', 'Sarah Williams', 'sarah@example.com', 'password123', 'Employee', 'Marketing', 'c1', 'SW');
-  insertUser.run('u3', 'Marcus Chen', 'marcus@example.com', 'password123', 'Employee', 'Engineering', 'c1', 'MC');
-  insertUser.run('u4', 'Elena Rossi', 'elena@example.com', 'password123', 'Employee', 'Sales Ops', 'c1', 'ER');
-  insertUser.run('u5', 'James Wilson', 'james@example.com', 'password123', 'Employee', 'Engineering', 'c1', 'JW');
+  // Seed data - Insert managers first, then employees
+  const insertUser = db.prepare('INSERT INTO users (id, name, email, password, role, department, company_id, avatar, manager_id, job_title, employee_number, hire_date, cost_center, location, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const now = new Date().toISOString();
+  insertUser.run('u1', 'Alex Johnson', 'alex@example.com', hashPassword('password123'), 'Finance Lead', 'Finance', 'c1', 'AJ', null, 'Finance Director', 'EMP001', '2020-01-15', 'CC-1001', 'New York', 1, now, now);
+  insertUser.run('u6', 'Michael Brown', 'michael@example.com', hashPassword('password123'), 'Manager', 'Marketing', 'c1', 'MB', null, 'Marketing Manager', 'EMP006', '2021-03-20', 'CC-2001', 'San Francisco', 1, now, now);
+  insertUser.run('u7', 'Lisa Anderson', 'lisa@example.com', hashPassword('password123'), 'Manager', 'Engineering', 'c1', 'LA', null, 'Engineering Manager', 'EMP007', '2021-06-10', 'CC-3001', 'Seattle', 1, now, now);
+  insertUser.run('u8', 'David Lee', 'david@example.com', hashPassword('password123'), 'Admin', 'IT', 'c1', 'DL', null, 'IT Director', 'EMP008', '2020-08-01', 'CC-4001', 'New York', 1, now, now);
+  insertUser.run('u2', 'Sarah Williams', 'sarah@example.com', hashPassword('password123'), 'Employee', 'Marketing', 'c1', 'SW', 'u6', 'Marketing Specialist', 'EMP002', '2022-01-10', 'CC-2001', 'San Francisco', 1, now, now);
+  insertUser.run('u3', 'Marcus Chen', 'marcus@example.com', hashPassword('password123'), 'Employee', 'Engineering', 'c1', 'MC', 'u7', 'Software Engineer', 'EMP003', '2022-05-15', 'CC-3001', 'Seattle', 1, now, now);
+  insertUser.run('u4', 'Elena Rossi', 'elena@example.com', hashPassword('password123'), 'Employee', 'Sales Ops', 'c1', 'ER', 'u6', 'Sales Representative', 'EMP004', '2023-02-01', 'CC-5001', 'Chicago', 1, now, now);
+  insertUser.run('u5', 'James Wilson', 'james@example.com', hashPassword('password123'), 'Employee', 'Engineering', 'c1', 'JW', 'u7', 'DevOps Engineer', 'EMP005', '2022-08-20', 'CC-3001', 'Seattle', 1, now, now);
+
+  // Seed Departments
+  const insertDepartment = db.prepare('INSERT INTO departments (id, name, code, parent_id, manager_id, head_count, budget) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  insertDepartment.run('dept-1', 'Finance', 'FIN', null, 'u1', 1, 500000);
+  insertDepartment.run('dept-2', 'Marketing', 'MKT', null, 'u6', 2, 300000);
+  insertDepartment.run('dept-3', 'Engineering', 'ENG', null, 'u7', 3, 800000);
+  insertDepartment.run('dept-4', 'IT', 'IT', null, 'u8', 1, 200000);
+  insertDepartment.run('dept-5', 'Sales Ops', 'SALES', null, 'u6', 1, 400000);
+
+  // Seed Approval Levels for Standard Workflow
+  const insertApprovalLevel = db.prepare('INSERT INTO approval_levels (id, name, level_order, approver_type, approver_role, approver_department, condition_type, condition_value, workflow_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  insertApprovalLevel.run('level-1', 'Direct Manager Approval', 1, 'manager', null, null, null, null, 'wf-1');
+  insertApprovalLevel.run('level-2', 'Finance Review (Amount > $1000)', 2, 'condition', null, 'Finance', 'amount_above', 1000, 'wf-1');
+  insertApprovalLevel.run('level-3', 'Finance Lead Approval (Amount > $5000)', 3, 'condition', 'Finance Lead', null, 'amount_above', 5000, 'wf-1');
+  insertApprovalLevel.run('level-4', 'Automatic Payment Processing', 4, 'action', null, null, null, null, 'wf-1');
 
   const insertCompany = db.prepare('INSERT INTO companies (id, name, code) VALUES (?, ?, ?)');
   insertCompany.run('c1', 'Global Corp', 'US-01');
@@ -260,7 +369,38 @@ export function initDb() {
   insertApproval.run('a20', 'REQ-5002', 'u1', 'Approved', 1, 'Manager approved, pending finance review.', 'node-manager', daysAgo(5));
   insertApproval.run('a21', 'REQ-5002', 'u1', 'Rejected', 2, 'Exceeds Q3 hardware budget. Please defer to Q4.', 'node-finance', daysAgo(4));
 
-  // Seed Workflows
+  // Seed Workflows with BPMN XML
+  const defaultBpmnXml = `<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_wf1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_wf1" name="Standard Approval Workflow" isExecutable="true">
+    <startEvent id="start" name="Submit Claim">
+      <outgoing>flow_0</outgoing>
+    </startEvent>
+    <userTask id="task_manager" name="Manager Approval">
+      <incoming>flow_0</incoming>
+      <outgoing>flow_1</outgoing>
+    </userTask>
+    <userTask id="task_finance" name="Finance Review">
+      <incoming>flow_1</incoming>
+      <outgoing>flow_2</outgoing>
+    </userTask>
+    <serviceTask id="task_payment" name="Process Payment">
+      <incoming>flow_2</incoming>
+      <outgoing>flow_3</outgoing>
+    </serviceTask>
+    <endEvent id="end" name="Complete">
+      <incoming>flow_3</incoming>
+    </endEvent>
+    <sequenceFlow id="flow_0" sourceRef="start" targetRef="task_manager"/>
+    <sequenceFlow id="flow_1" sourceRef="task_manager" targetRef="task_finance"/>
+    <sequenceFlow id="flow_2" sourceRef="task_finance" targetRef="task_payment"/>
+    <sequenceFlow id="flow_3" sourceRef="task_payment" targetRef="end"/>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="Process_wf1"/>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>`;
+
   const defaultWorkflow = {
     id: 'wf-1',
     name: 'Standard Approval Workflow',
@@ -268,24 +408,34 @@ export function initDb() {
     entity_type: 'claim',
     is_default: 1,
     is_active: 1,
+    version: 1,
+    bpmn_xml: defaultBpmnXml,
     nodes: JSON.stringify([
-      { id: 'start', type: 'start', position: { x: 100, y: 200 }, data: { label: 'Submit' } },
-      { id: 'manager', type: 'approval', position: { x: 300, y: 200 }, data: { label: 'Manager Approval', approverRole: 'Manager' } },
-      { id: 'finance', type: 'approval', position: { x: 500, y: 200 }, data: { label: 'Finance Review', approverRole: 'Finance Lead' } },
-      { id: 'payment', type: 'action', position: { x: 700, y: 200 }, data: { label: 'Process Payment' } },
-      { id: 'end', type: 'end', position: { x: 900, y: 200 }, data: { label: 'Complete' } }
+      { id: 'start', type: 'start', position: { x: 100, y: 200 }, data: { label: 'Submit', nodeType: 'start' } },
+      { id: 'manager', type: 'approval', position: { x: 300, y: 200 }, data: { label: 'Manager Approval', nodeType: 'approval', approverRole: 'Manager' } },
+      { id: 'condition-1k', type: 'condition', position: { x: 500, y: 150 }, data: { label: 'Check Amount > $1000', nodeType: 'condition', conditionType: 'amount_above', conditionValue: 1000 } },
+      { id: 'condition-5k', type: 'condition', position: { x: 700, y: 100 }, data: { label: 'Check Amount > $5000', nodeType: 'condition', conditionType: 'amount_above', conditionValue: 5000 } },
+      { id: 'finance', type: 'approval', position: { x: 500, y: 300 }, data: { label: 'Finance Review', nodeType: 'approval', approverRole: 'Finance Lead' } },
+      { id: 'finance-director', type: 'approval', position: { x: 700, y: 250 }, data: { label: 'Finance Director', nodeType: 'approval', approverRole: 'Finance Lead' } },
+      { id: 'payment', type: 'action', position: { x: 900, y: 200 }, data: { label: 'Process Payment', nodeType: 'action' } },
+      { id: 'end', type: 'end', position: { x: 1100, y: 200 }, data: { label: 'Complete', nodeType: 'end' } }
     ]),
     edges: JSON.stringify([
       { id: 'e1-2', source: 'start', target: 'manager' },
-      { id: 'e2-3', source: 'manager', target: 'finance' },
-      { id: 'e3-4', source: 'finance', target: 'payment' },
-      { id: 'e4-5', source: 'payment', target: 'end' }
+      { id: 'e2-3', source: 'manager', target: 'condition-1k' },
+      { id: 'e3-true', source: 'condition-1k', target: 'finance', label: 'Yes (>$1000)' },
+      { id: 'e3-false', source: 'condition-1k', target: 'payment', label: 'No (≤$1000)' },
+      { id: 'e4-true', source: 'condition-5k', target: 'finance-director', label: 'Yes (>$5000)' },
+      { id: 'e4-false', source: 'condition-5k', target: 'payment', label: 'No (≤$5000)' },
+      { id: 'e5-6', source: 'finance', target: 'condition-5k' },
+      { id: 'e6-7', source: 'finance-director', target: 'payment' },
+      { id: 'e7-8', source: 'payment', target: 'end' }
     ])
   };
 
   db.prepare(`
-    INSERT INTO workflows (id, name, description, entity_type, is_default, is_active, nodes, edges)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO workflows (id, name, description, entity_type, is_default, is_active, version, bpmn_xml, nodes, edges)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     defaultWorkflow.id,
     defaultWorkflow.name,
@@ -293,6 +443,8 @@ export function initDb() {
     defaultWorkflow.entity_type,
     defaultWorkflow.is_default,
     defaultWorkflow.is_active,
+    defaultWorkflow.version,
+    defaultWorkflow.bpmn_xml,
     defaultWorkflow.nodes,
     defaultWorkflow.edges
   );

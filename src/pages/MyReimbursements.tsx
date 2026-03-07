@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Plus, Search, Download, MoreVertical, CheckCircle2, Clock, XCircle, AlertCircle, Trash2, RotateCcw, Edit3, ChevronDown, ChevronUp, ExternalLink, AlertTriangle } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../App';
+import { useAuth, useApiFetch } from '../App';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
   'Approved': { color: 'text-emerald-700', bg: 'bg-emerald-100', icon: CheckCircle2, label: 'Approved' },
   'Rejected': { color: 'text-red-700', bg: 'bg-red-100', icon: XCircle, label: 'Rejected' },
   'Pending': { color: 'text-amber-700', bg: 'bg-amber-100', icon: Clock, label: 'Pending' },
   'Pending Finance': { color: 'text-amber-700', bg: 'bg-amber-100', icon: AlertCircle, label: 'Pending Finance' },
-  'Processing Payment': { color: 'text-blue-700', bg: 'bg-blue-100', icon: Clock, label: 'Processing' },
+  'Processing Payment': { color: 'text-blue-700', bg: 'bg-blue-100', icon: Clock, label: 'Processing Payment' },
+  'Paid': { color: 'text-green-700', bg: 'bg-green-100', icon: CheckCircle2, label: 'Paid' },
   'Draft': { color: 'text-slate-500', bg: 'bg-slate-100', icon: Clock, label: 'Draft' },
 };
 
@@ -24,6 +25,7 @@ const categoryConfig: Record<string, string> = {
 
 export default function MyReimbursements() {
   const { user } = useAuth();
+  const apiFetch = useApiFetch();
   const [claims, setClaims] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,7 +35,7 @@ export default function MyReimbursements() {
   const navigate = useNavigate();
 
   const fetchClaims = () => {
-    fetch('/api/claims')
+    apiFetch('/api/claims')
       .then(res => res.json())
       .then(data => {
         setClaims(data.filter((c: any) => c.claimant_id === user?.id));
@@ -43,7 +45,7 @@ export default function MyReimbursements() {
 
   useEffect(() => {
     fetchClaims();
-  }, [user]);
+  }, [user, apiFetch]);
 
   const filteredClaims = claims.filter(claim => {
     const matchesSearch = claim.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -81,9 +83,9 @@ export default function MyReimbursements() {
 
     try {
       if (type === 'withdraw') {
-        await fetch(`/api/claims/${claimId}/withdraw`, { method: 'POST' });
+        await apiFetch(`/api/claims/${claimId}/withdraw`, { method: 'POST' });
       } else if (type === 'delete') {
-        await fetch(`/api/claims/${claimId}`, { method: 'DELETE' });
+        await apiFetch(`/api/claims/${claimId}`, { method: 'DELETE' });
       }
       fetchClaims();
     } catch (error) {

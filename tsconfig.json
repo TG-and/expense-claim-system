@@ -21,6 +21,13 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": ["node", "jest"]
+  },
+  "include": ["src", "tests"],
+  "exclude": ["node_modules", "dist"]
 }

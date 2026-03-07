@@ -1,19 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Clock, XCircle, AlertCircle, Receipt, FileText, User, Building2, MessageSquare, ChevronRight, Search, Filter } from 'lucide-react';
-
-const CURRENT_USER_ID = 'u2'; 
+import { useApiFetch } from '../App';
 
 const statusConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
   'Approved': { color: 'text-emerald-600', bg: 'bg-emerald-100', icon: CheckCircle2, label: 'Approved' },
   'Rejected': { color: 'text-red-600', bg: 'bg-red-100', icon: XCircle, label: 'Rejected' },
   'Pending': { color: 'text-amber-600', bg: 'bg-amber-100', icon: Clock, label: 'Pending' },
   'Pending Finance': { color: 'text-amber-600', bg: 'bg-amber-100', icon: AlertCircle, label: 'Pending Finance' },
-  'Processing Payment': { color: 'text-blue-600', bg: 'bg-blue-100', icon: Clock, label: 'Processing' },
+  'Processing Payment': { color: 'text-blue-600', bg: 'bg-blue-100', icon: Clock, label: 'Processing Payment' },
+  'Paid': { color: 'text-green-600', bg: 'bg-green-100', icon: CheckCircle2, label: 'Paid' },
   'Draft': { color: 'text-slate-500', bg: 'bg-slate-100', icon: FileText, label: 'Draft' },
 };
 
 export default function ApprovalsPage() {
+  const apiFetch = useApiFetch();
   const [claims, setClaims] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'all'>('pending');
@@ -21,16 +22,13 @@ export default function ApprovalsPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch('/api/claims')
+    apiFetch('/api/approvals')
       .then(res => res.json())
       .then(data => {
-        const pendingClaims = data.filter((c: any) => 
-          c.status === 'Pending' || c.status === 'Pending Finance'
-        );
-        setClaims(filter === 'pending' ? pendingClaims : data);
+        setClaims(filter === 'pending' ? data : data);
         setLoading(false);
       });
-  }, [filter]);
+  }, [filter, apiFetch]);
 
   const filteredClaims = claims.filter(claim => 
     claim.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||

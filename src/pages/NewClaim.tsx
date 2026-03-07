@@ -1,6 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle2, Receipt, Sparkles, Plus, Trash2, FileText, X, ChevronRight, Edit3 } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ArrowLeft, CheckCircle2, Receipt, Sparkles, Plus, Trash2, FileText, X, ChevronRight, Edit3, Users, User, ArrowDown } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useApiFetch, useAuth } from '../App';
+
+interface ClaimItem {
+  id: string;
+  category: string;
+  description: string;
+  vendorId: string;
+  amount: string;
+  currency: string;
+  attachmentUrl: string;
+  attachmentName: string;
+}
+
+interface ApprovalStep {
+  level: number;
+  type: string;
+  condition?: string;
+  approver: {
+    id: string;
+    name: string;
+    role: string;
+    department: string;
+  };
+}
 
 interface ClaimItem {
   id: string;
@@ -35,6 +59,8 @@ const initialItem: ClaimItem = {
 };
 
 export default function NewClaim() {
+  const apiFetch = useApiFetch();
+  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
   const isEditMode = Boolean(id);
   const [vendors, setVendors] = useState<any[]>([]);
@@ -45,11 +71,12 @@ export default function NewClaim() {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [approvalPath, setApprovalPath] = useState<ApprovalStep[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (isEditMode && id) {
-      fetch(`/api/claims/${id}`)
+      apiFetch(`/api/claims/${id}`)
         .then(res => res.json())
         .then(data => {
           setFormDescription(data.description || '');
@@ -65,10 +92,29 @@ export default function NewClaim() {
           })));
         });
     }
-  }, [id, isEditMode]);
+  }, [id, isEditMode, apiFetch]);
+
+  const fetchApprovalPath = useCallback(async (claimantId: string, amount: number) => {
+    if (!claimantId || amount <= 0) {
+      setApprovalPath([]);
+      return;
+    }
+    try {
+      const token = localStorage.getItem('expense_token');
+      const res = await fetch(`/api/workflow/approval-path?claimant_id=${claimantId}&amount=${amount}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setApprovalPath(data.approvers || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch approval path:', error);
+    }
+  }, []);
 
   useEffect(() => {
-    fetch('/api/vendors')
+    apiFetch('/api/vendors')
       .then(res => res.json())
       .then(data => {
         setVendors(data);
@@ -78,6 +124,16 @@ export default function NewClaim() {
       })
       .catch(console.error);
   }, []);
+
+  const totalAmount = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
+  useEffect(() => {
+    if (user?.id && totalAmount > 0) {
+      fetchApprovalPath(user.id, totalAmount);
+    } else {
+      setApprovalPath([]);
+    }
+  }, [user?.id, totalAmount, fetchApprovalPath]);
 
   const addItemToList = () => {
     if (!currentItem.description || !currentItem.amount) return;
@@ -157,8 +213,6 @@ export default function NewClaim() {
     setCurrentItem(prev => ({ ...prev, attachmentUrl: '', attachmentName: '' }));
   };
 
-  const totalAmount = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formDescription || items.length === 0) return;
@@ -167,10 +221,10 @@ export default function NewClaim() {
     
     try {
       if (isEditMode && id) {
-        await fetch(`/api/claims/${id}`, { method: 'DELETE' });
+        await apiFetch(`/api/claims/${id}`, { method: 'DELETE' });
       }
       
-      const res = await fetch('/api/claims', {
+      const res = await apiFetch('/api/claims', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,6 +267,31 @@ export default function NewClaim() {
         <h2 className="text-3xl font-black tracking-tight text-slate-900 mb-2">Claim Submitted</h2>
         <p className="text-slate-500 text-lg">Your claim "{formDescription}" with {items.length} items has been submitted.</p>
         <p className="text-slate-900 text-2xl font-bold mt-4">Total: ${totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+        {approvalPath.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <p className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+              <Users className="w-4 h-4" /> Approval Flow Preview
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {approvalPath.map((step, index) => (
+                <div key={step.level} className="flex items-center">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-100 rounded-lg">
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
+                      {step.level}
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700">{step.approver.name}</p>
+                      <p className="text-[10px] text-slate-500">{step.type}</p>
+                    </div>
+                  </div>
+                  {index < approvalPath.length - 1 && (
+                    <ArrowDown className="w-4 h-4 text-slate-300 mx-1" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <p className="text-slate-400 text-sm mt-4">Redirecting to My Reimbursements...</p>
       </div>
     );
@@ -308,6 +387,40 @@ export default function NewClaim() {
                   </p>
                 </div>
               </div>
+
+              {approvalPath.length > 0 && totalAmount > 0 && (
+                <div className="mt-4 pt-4 border-t border-blue-200">
+                  <p className="text-sm font-bold text-blue-700 mb-3 flex items-center gap-2">
+                    <Users className="w-4 h-4" /> Approval Flow Preview
+                  </p>
+                  <div className="space-y-2">
+                    {approvalPath.map((step, index) => (
+                      <div key={step.level} className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
+                          {step.level}
+                        </div>
+                        <div className="flex-1 bg-white/50 rounded-lg px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-800">{step.approver.name}</p>
+                              <p className="text-xs text-slate-500">{step.approver.role} - {step.approver.department}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs font-medium text-blue-700">{step.type}</p>
+                              {step.condition && (
+                                <p className="text-[10px] text-slate-400">{step.condition}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        {index < approvalPath.length - 1 && (
+                          <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

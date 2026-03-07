@@ -15,7 +15,14 @@ import {
   NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Save, Plus, Trash2, X, ArrowRight, CheckCircle, Circle, Square, Play, StopCircle, Settings, User, FileText, DollarSign } from 'lucide-react';
+import { Save, Plus, Trash2, X, ArrowRight, CheckCircle, Circle, Square, Play, StopCircle, Settings, User, FileText, DollarSign, GitBranch } from 'lucide-react';
+
+interface ConditionBranch {
+  id: string;
+  label: string;
+  expression: string;
+  targetNodeId: string;
+}
 
 interface WorkflowNodeData {
   label: string;
@@ -23,7 +30,12 @@ interface WorkflowNodeData {
   approverRole?: string;
   approverDepartment?: string;
   approverUserId?: string;
-  condition?: string;
+  conditionType?: 'amount_above' | 'amount_below' | 'custom';
+  conditionValue?: number;
+  conditionExpression?: string;
+  branches?: ConditionBranch[];
+  defaultTargetId?: string;
+  [key: string]: any;
 }
 
 interface Workflow {
@@ -159,7 +171,9 @@ export default function WorkflowConfiguration() {
     label: '',
     nodeType: 'approval' as WorkflowNodeData['nodeType'],
     approverRole: '',
-    condition: '',
+    conditionType: 'amount_above' as 'amount_above' | 'amount_below' | 'custom',
+    conditionValue: 1000,
+    conditionExpression: '',
   });
 
   useEffect(() => {
@@ -277,7 +291,9 @@ export default function WorkflowConfiguration() {
       label: node.data.label,
       nodeType: node.data.nodeType,
       approverRole: node.data.approverRole || '',
-      condition: node.data.condition || '',
+      conditionType: node.data.conditionType || 'amount_above',
+      conditionValue: node.data.conditionValue || 1000,
+      conditionExpression: node.data.conditionExpression || '',
     });
     setShowNodeModal(true);
   };
@@ -294,7 +310,9 @@ export default function WorkflowConfiguration() {
                   label: nodeForm.label,
                   nodeType: nodeForm.nodeType,
                   approverRole: nodeForm.approverRole || undefined,
-                  condition: nodeForm.condition || undefined,
+                  conditionType: nodeForm.nodeType === 'condition' ? nodeForm.conditionType : undefined,
+                  conditionValue: nodeForm.nodeType === 'condition' ? nodeForm.conditionValue : undefined,
+                  conditionExpression: nodeForm.nodeType === 'condition' ? nodeForm.conditionExpression : undefined,
                 },
               }
             : n
@@ -545,15 +563,51 @@ export default function WorkflowConfiguration() {
                 </div>
               )}
               {nodeForm.nodeType === 'condition' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-2">Condition</label>
-                  <input
-                    type="text"
-                    value={nodeForm.condition}
-                    onChange={(e) => setNodeForm({ ...nodeForm, condition: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., amount > 1000"
-                  />
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-2">Condition Type</label>
+                    <select
+                      value={nodeForm.conditionType}
+                      onChange={(e) => setNodeForm({ ...nodeForm, conditionType: e.target.value as any })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="amount_above">Amount Above (Greater than)</option>
+                      <option value="amount_below">Amount Below (Less than)</option>
+                      <option value="custom">Custom Expression</option>
+                    </select>
+                  </div>
+                  {nodeForm.conditionType !== 'custom' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-2">
+                        {nodeForm.conditionType === 'amount_above' ? 'Minimum Amount ($)' : 'Maximum Amount ($)'}
+                      </label>
+                      <input
+                        type="number"
+                        value={nodeForm.conditionValue}
+                        onChange={(e) => setNodeForm({ ...nodeForm, conditionValue: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g., 1000"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        {nodeForm.conditionType === 'amount_above' 
+                          ? `This branch will be taken when amount > $${nodeForm.conditionValue}`
+                          : `This branch will be taken when amount < $${nodeForm.conditionValue}`
+                        }
+                      </p>
+                    </div>
+                  )}
+                  {nodeForm.conditionType === 'custom' && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-2">Custom Expression</label>
+                      <input
+                        type="text"
+                        value={nodeForm.conditionExpression}
+                        onChange={(e) => setNodeForm({ ...nodeForm, conditionExpression: e.target.value })}
+                        className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g., amount > 1000 && department === 'Sales'"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>

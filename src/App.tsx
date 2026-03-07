@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import FinanceDashboard from './pages/FinanceDashboard';
@@ -30,15 +30,23 @@ interface AuthContextType {
   user: User | null;
   login: (user: User) => void;
   logout: () => void;
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 export const AuthContext = createContext<AuthContextType>({
   user: null,
   login: () => {},
-  logout: () => {}
+  logout: () => {},
+  apiFetch: (url, options) => fetch(url, options)
 });
 
 export const useAuth = () => useContext(AuthContext);
+
+// Custom fetch that includes user ID in headers
+export function useApiFetch() {
+  const { user, apiFetch } = useAuth();
+  return apiFetch;
+}
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -67,6 +75,14 @@ export default function App() {
     fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   };
 
+  const apiFetch = useCallback(async (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers);
+    if (user) {
+      headers.set('x-user-id', user.id);
+    }
+    return fetch(url, { ...options, headers });
+  }, [user]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -76,7 +92,7 @@ export default function App() {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, apiFetch }}>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login onLogin={login} />} />
