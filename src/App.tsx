@@ -77,6 +77,10 @@ export default function App() {
 
   const apiFetch = useCallback(async (url: string, options: RequestInit = {}) => {
     const headers = new Headers(options.headers);
+    const token = localStorage.getItem('expense_token');
+    if (token) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
     if (user) {
       headers.set('x-user-id', user.id);
     }
