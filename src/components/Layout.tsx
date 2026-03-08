@@ -236,7 +236,7 @@ export default function Layout() {
             </>
           )}
 
-          {isAdmin && (
+          {(isAdmin || user?.role === 'Admin') && (
             <>
               <div className={cn("text-xs font-semibold text-slate-400 uppercase tracking-wider", isCollapsed ? "px-0 text-center py-2" : "px-3 pb-2")}>
                 {!isCollapsed && "Core Logic"}
@@ -267,28 +267,19 @@ export default function Layout() {
             >
               {isCollapsed ? <LayoutDashboard className="w-5 h-5 mx-auto" /> : "Claimant Portal"}
             </NavLink>
-            <NavLink 
-              to="/finance" 
-              className={({ isActive }) => cn(
-                "text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-100 w-full text-center",
-                isFinance ? "bg-slate-100 text-blue-600" : "text-slate-600",
-                isCollapsed && "px-2"
-              )}
-              title="Finance Portal"
-            >
-              {isCollapsed ? <Wallet className="w-5 h-5 mx-auto" /> : "Finance Portal"}
-            </NavLink>
-            <NavLink 
-              to="/admin" 
-              className={({ isActive }) => cn(
-                "text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-100 w-full text-center",
-                isAdmin ? "bg-slate-100 text-blue-600" : "text-slate-600",
-                isCollapsed && "px-2"
-              )}
-              title="Admin Portal"
-            >
-              {isCollapsed ? <Settings className="w-5 h-5 mx-auto" /> : "Admin Portal"}
-            </NavLink>
+            {user?.role === 'Admin' && (
+              <NavLink 
+                to="/admin" 
+                className={({ isActive }) => cn(
+                  "text-sm font-medium px-3 py-2 rounded-lg hover:bg-slate-100 w-full text-center",
+                  isAdmin ? "bg-slate-100 text-blue-600" : "text-slate-600",
+                  isCollapsed && "px-2"
+                )}
+                title="Admin Portal"
+              >
+                {isCollapsed ? <Settings className="w-5 h-5 mx-auto" /> : "Admin Portal"}
+              </NavLink>
+            )}
           </div>
         </div>
 

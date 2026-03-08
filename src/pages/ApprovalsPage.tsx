@@ -19,27 +19,55 @@ export default function ApprovalsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'all'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
+  const [workflowTasks, setWorkflowTasks] = useState<any[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
-    apiFetch('/api/approvals')
-      .then(res => res.json())
-      .then(data => {
-        setClaims(filter === 'pending' ? data : data);
-        setLoading(false);
-      });
+    const token = localStorage.getItem('expense_token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    Promise.all([
+      apiFetch('/api/approvals').then(res => res.json()).catch(() => []),
+      apiFetch('/api/workflow/tasks').then(res => res.json()).catch(() => [])
+    ]).then(([approvalsData, tasksData]) => {
+      setClaims(Array.isArray(approvalsData) ? approvalsData : []);
+      setWorkflowTasks(Array.isArray(tasksData) ? tasksData : []);
+      setLoading(false);
+    }).catch(() => {
+      setClaims([]);
+      setWorkflowTasks([]);
+      setLoading(false);
+    });
   }, [filter, apiFetch]);
 
-  const filteredClaims = claims.filter(claim => 
+  const allApprovalItems = [
+    ...claims.map(c => ({ ...c, isWorkflowTask: false })),
+    ...workflowTasks.map(t => ({
+      id: t.entity_id,
+      description: t.node_label || 'Pending Approval',
+      claimant_name: t.claimant_name,
+      claimant_department: t.claimant_department,
+      claimant_avatar: t.claimant_avatar,
+      status: 'Pending',
+      isWorkflowTask: true,
+      task_id: t.id,
+      created_at: t.created_at,
+    }))
+  ];
+
+  const filteredClaims = allApprovalItems.filter((claim: any) => 
     claim.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     claim.claimant_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     claim.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const stats = {
-    pending: claims.filter(c => c.status === 'Pending').length,
+    pending: claims.filter(c => c.status === 'Pending').length + workflowTasks.length,
     pendingFinance: claims.filter(c => c.status === 'Pending Finance').length,
-    total: claims.length,
+    total: allApprovalItems.length,
   };
 
   const formatDate = (dateString: string) => {
@@ -137,20 +165,24 @@ export default function ApprovalsPage() {
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {filteredClaims.map(claim => {
+            {filteredClaims.map((claim: any) => {
               const status = statusConfig[claim.status] || statusConfig['Pending'];
               const StatusIcon = status.icon;
               
               return (
                 <div 
-                  key={claim.id}
+                  key={claim.isWorkflowTask ? `wf-${claim.task_id}` : claim.id}
                   className="p-4 sm:p-6 hover:bg-slate-50 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/approvals/${claim.id}`)}
+                  onClick={() => navigate(claim.isWorkflowTask ? `/approvals/${claim.id}?taskId=${claim.task_id}` : `/approvals/${claim.id}`)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4 flex-1">
-                      <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
-                        <Receipt className="w-6 h-6 text-slate-500" />
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${claim.isWorkflowTask ? 'bg-amber-100' : 'bg-slate-100'}`}>
+                        {claim.isWorkflowTask ? (
+                          <CheckCircle2 className="w-6 h-6 text-amber-600" />
+                        ) : (
+                          <Receipt className="w-6 h-6 text-slate-500" />
+                        )}
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-3 flex-wrap">

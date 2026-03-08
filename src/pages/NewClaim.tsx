@@ -585,7 +585,7 @@ export default function NewClaim() {
 
         {/* Bottom Actions */}
         <div className="mt-8 flex justify-end gap-3 pt-6 border-t border-slate-200">
-          <Link to="/" className="px-6 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors">
+          <Link to="/reimbursements" className="px-6 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors">
             Cancel
           </Link>
           <button 

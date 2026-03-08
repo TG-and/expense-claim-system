@@ -1,17 +1,96 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle2, Clock, XCircle, AlertCircle, RotateCcw, FileText, Download, Eye, Edit3, Trash2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Clock, XCircle, AlertCircle, RotateCcw, FileText, Download, Eye, Edit3, Trash2, AlertTriangle, Send, Hourglass, CircleCheck, CircleX } from 'lucide-react';
 import { useApiFetch } from '../App';
 
-const statusConfig: Record<string, { color: string; bg: string; icon: any; label: string }> = {
-  'Approved': { color: 'text-emerald-700', bg: 'bg-emerald-100', icon: CheckCircle2, label: 'Approved' },
-  'Rejected': { color: 'text-red-700', bg: 'bg-red-100', icon: XCircle, label: 'Rejected' },
-  'Pending': { color: 'text-amber-700', bg: 'bg-amber-100', icon: Clock, label: 'Pending' },
-  'Pending Finance': { color: 'text-amber-700', bg: 'bg-amber-100', icon: AlertCircle, label: 'Pending Finance' },
-  'Processing Payment': { color: 'text-blue-700', bg: 'bg-blue-100', icon: Clock, label: 'Processing Payment' },
-  'Paid': { color: 'text-green-700', bg: 'bg-green-100', icon: CheckCircle2, label: 'Paid' },
-  'Draft': { color: 'text-slate-500', bg: 'bg-slate-100', icon: Clock, label: 'Draft' },
+type ClaimStatus = 'Draft' | 'Submitted' | 'Approval' | 'Approved' | 'Rejected' | 'Pending' | 'Pending Finance' | 'Processing Payment' | 'Paid';
+
+interface StatusConfig {
+  color: string;
+  bg: string;
+  icon: any;
+  label: string;
+  borderColor: string;
+}
+
+const statusConfig: Record<ClaimStatus, StatusConfig> = {
+  'Draft': { 
+    color: 'text-slate-700', 
+    bg: 'bg-slate-100', 
+    borderColor: 'border-slate-300',
+    icon: Edit3, 
+    label: '草稿' 
+  },
+  'Submitted': { 
+    color: 'text-blue-700', 
+    bg: 'bg-blue-100', 
+    borderColor: 'border-blue-400',
+    icon: Send, 
+    label: '已提交' 
+  },
+  'Approval': { 
+    color: 'text-amber-700', 
+    bg: 'bg-amber-100', 
+    borderColor: 'border-amber-400',
+    icon: Hourglass, 
+    label: '审批中' 
+  },
+  'Approved': { 
+    color: 'text-emerald-700', 
+    bg: 'bg-emerald-100', 
+    borderColor: 'border-emerald-400',
+    icon: CircleCheck, 
+    label: '审批通过' 
+  },
+  'Rejected': { 
+    color: 'text-red-700', 
+    bg: 'bg-red-100', 
+    borderColor: 'border-red-400',
+    icon: CircleX, 
+    label: '审批拒绝' 
+  },
+  'Pending': { 
+    color: 'text-amber-700', 
+    bg: 'bg-amber-100', 
+    borderColor: 'border-amber-400',
+    icon: Clock, 
+    label: '待处理' 
+  },
+  'Pending Finance': { 
+    color: 'text-amber-700', 
+    bg: 'bg-amber-100', 
+    borderColor: 'border-amber-400',
+    icon: AlertCircle, 
+    label: '待财务审批' 
+  },
+  'Processing Payment': { 
+    color: 'text-blue-700', 
+    bg: 'bg-blue-100', 
+    borderColor: 'border-blue-400',
+    icon: Clock, 
+    label: '处理中' 
+  },
+  'Paid': { 
+    color: 'text-green-700', 
+    bg: 'bg-green-100', 
+    borderColor: 'border-green-400',
+    icon: CheckCircle2, 
+    label: '已完成' 
+  },
 };
+
+function getDisplayStatus(claim: any): ClaimStatus {
+  if (claim.status === 'Draft') return 'Draft';
+  if (claim.status === 'Rejected') return 'Rejected';
+  if (claim.status === 'Approved' || claim.status === 'Paid') return 'Approved';
+  if (claim.status === 'Processing Payment') return 'Processing Payment';
+  if (claim.status === 'Pending Finance') return 'Pending Finance';
+  if (claim.status === 'Pending') {
+    if (claim.step === 1) return 'Submitted';
+    return 'Approval';
+  }
+  return 'Approval';
+}
 
 const categoryConfig: Record<string, { icon: string; color: string }> = {
   'Travel': { icon: '✈️', color: 'bg-blue-100' },
@@ -179,7 +258,8 @@ export default function ClaimDetails() {
     );
   }
 
-  const status = statusConfig[claim.status] || statusConfig['Pending'];
+  const displayStatus = getDisplayStatus(claim);
+  const status = statusConfig[displayStatus];
   const canWithdraw = claim.status === 'Pending' || claim.status === 'Pending Finance';
   const isDraft = claim.status === 'Draft';
 
@@ -263,7 +343,8 @@ export default function ClaimDetails() {
           <div>
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{claim.description}</h2>
-              <span className={`px-3 py-1 text-xs font-bold rounded-full ${status.bg} ${status.color}`}>
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-full ${status.bg} ${status.color} border ${status.borderColor} transition-all duration-300 animate-fadeIn`}>
+                <status.icon className="w-3.5 h-3.5" />
                 {status.label}
               </span>
             </div>

@@ -38,32 +38,50 @@ export default function Dashboard() {
   const apiFetch = useApiFetch();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    apiFetch('/api/claims')
-      .then(res => res.json())
-      .then(data => {
-        setClaims(data);
-        setLoading(false);
-      });
-  }, [apiFetch]);
-
   const [pendingApprovals, setPendingApprovals] = useState<Claim[]>([]);
+  const [workflowTasks, setWorkflowTasks] = useState<any[]>([]);
 
   useEffect(() => {
-    apiFetch('/api/approvals')
-      .then(res => res.json())
-      .then(data => {
-        setPendingApprovals(data);
-      });
+    const token = localStorage.getItem('expense_token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    Promise.all([
+      apiFetch('/api/claims').then(res => res.json()).catch(() => []),
+      apiFetch('/api/approvals').then(res => res.json()).catch(() => []),
+      apiFetch('/api/workflow/tasks').then(res => res.json()).catch(() => [])
+    ]).then(([claimsData, approvalsData, tasksData]) => {
+      setClaims(Array.isArray(claimsData) ? claimsData : []);
+      setPendingApprovals(Array.isArray(approvalsData) ? approvalsData : []);
+      setWorkflowTasks(Array.isArray(tasksData) ? tasksData : []);
+      setLoading(false);
+    });
   }, [apiFetch]);
+
+  const allPendingApprovals = [
+    ...pendingApprovals,
+    ...workflowTasks.map((task: any) => ({
+      id: task.entity_id,
+      description: task.node_label || 'Pending Approval',
+      claimant_name: task.claimant_name,
+      claimant_department: task.claimant_department,
+      claimant_avatar: task.claimant_avatar,
+      total_amount: 0,
+      status: 'Pending',
+      isWorkflowTask: true,
+      task_id: task.id,
+    }))
+  ];
 
   const stats = {
     total: claims.length,
     pending: claims.filter(c => c.status === 'Pending' || c.status === 'Pending Finance').length,
-    approved: claims.filter(c => c.status === 'Approved').length,
+    approved: claims.filter(c => c.status === 'Approved' || c.status === 'Paid').length,
     totalAmount: claims.reduce((sum, c) => sum + c.total_amount, 0),
-    approvedAmount: claims.filter(c => c.status === 'Approved').reduce((sum, c) => sum + c.total_amount, 0),
+    approvedAmount: claims.filter(c => c.status === 'Approved' || c.status === 'Paid').reduce((sum, c) => sum + c.total_amount, 0),
+    pendingApprovalCount: allPendingApprovals.length,
   };
 
   const categoryBreakdown: Record<string, { amount: number; count: number }> = {};
@@ -269,22 +287,26 @@ export default function Dashboard() {
         {/* Right Column - 1/3 width */}
         <div className="space-y-6">
           {/* Pending Approvals */}
-          {pendingApprovals.length > 0 && (
+          {allPendingApprovals.length > 0 && (
             <div className="bg-white border border-amber-200 rounded-2xl p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-900">Pending Approvals</h3>
+                <h3 className="text-lg font-bold text-slate-900">Pending Approvals ({allPendingApprovals.length})</h3>
                 <Link to="/approvals" className="text-sm text-amber-600 font-semibold hover:underline">View All</Link>
               </div>
               <div className="space-y-3">
-                {pendingApprovals.slice(0, 3).map(claim => (
+                {allPendingApprovals.slice(0, 5).map((claim: any, index: number) => (
                   <Link 
-                    key={claim.id}
-                    to={`/approvals/${claim.id}`}
+                    key={claim.isWorkflowTask ? `wf-${claim.task_id}` : claim.id}
+                    to={claim.isWorkflowTask ? `/approvals/${claim.id}?taskId=${claim.task_id}` : `/approvals/${claim.id}`}
                     className="flex items-center justify-between p-3 bg-amber-50 rounded-xl hover:bg-amber-100 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-                        <Receipt className="w-5 h-5 text-amber-600" />
+                        {claim.isWorkflowTask ? (
+                          <CheckCircle2 className="w-5 h-5 text-amber-600" />
+                        ) : (
+                          <Receipt className="w-5 h-5 text-amber-600" />
+                        )}
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-slate-900 truncate max-w-[150px]">{claim.description}</p>
@@ -292,8 +314,10 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-slate-900">${claim.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                      <p className="text-xs text-amber-600 font-medium">{claim.status}</p>
+                      {claim.total_amount > 0 && (
+                        <p className="font-bold text-slate-900">${claim.total_amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      )}
+                      <p className="text-xs text-amber-600 font-medium">{claim.isWorkflowTask ? 'Awaiting' : claim.status}</p>
                     </div>
                   </Link>
                 ))}

@@ -1,6 +1,6 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import { initDb, db } from "./src/db/index.js";
+import { initDb, db } from "./src/db/index";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -110,7 +110,7 @@ async function startServer() {
 
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      req.user = decoded;
+      req.user = { ...decoded, id: decoded.userId };
       next();
     } catch (error) {
       return res.status(403).json({ error: "Invalid or expired token" });
@@ -395,13 +395,9 @@ async function startServer() {
   });
 
   // Claims API
-  app.get("/api/claims", (req, res) => {
-    const user = (req as any).user;
+  app.get("/api/claims", authenticateToken, (req: any, res: any) => {
+    const user = req.user;
     let claims;
-    
-    if (!user) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
     
     // Role-based filtering
     if (user.role === 'Employee') {
@@ -708,9 +704,9 @@ async function startServer() {
     }
   });
 
-  app.post("/api/claims/:id/approve", (req, res) => {
+  app.post("/api/claims/:id/approve", authenticateToken, (req: any, res: any) => {
     const claimId = req.params.id;
-    const user = (req as any).user;
+    const user = req.user;
     const { comments } = req.body;
     
     if (!user) {
@@ -767,9 +763,9 @@ async function startServer() {
     }
   });
 
-  app.post("/api/claims/:id/reject", (req, res) => {
+  app.post("/api/claims/:id/reject", authenticateToken, (req: any, res: any) => {
     const claimId = req.params.id;
-    const user = (req as any).user;
+    const user = req.user;
     const { comments } = req.body;
     
     if (!user) {
@@ -1354,17 +1350,29 @@ async function startServer() {
         t.*,
         i.entity_type,
         i.entity_id,
-        i.claimant_id,
         w.name as workflow_name,
-        u.name as claimant_name
+        c.claimant_id,
+        u.name as claimant_name,
+        u.department as claimant_department,
+        u.avatar as claimant_avatar
       FROM workflow_tasks t
       JOIN workflow_instances i ON t.instance_id = i.id
       JOIN workflows w ON i.workflow_id = w.id
-      LEFT JOIN users u ON i.claimant_id = u.id
+      LEFT JOIN claims c ON i.entity_id = c.id
+      LEFT JOIN users u ON c.claimant_id = u.id
       WHERE t.assignee_id = ? AND t.status = 'pending'
       ORDER BY t.created_at DESC
     `).all(req.user.userId);
     res.json(tasks);
+  });
+
+  app.get("/api/workflow/tasks/count", authenticateToken, (req: any, res: any) => {
+    const count = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM workflow_tasks t
+      WHERE t.assignee_id = ? AND t.status = 'pending'
+    `).get(req.user.userId) as { count: number };
+    res.json({ count: count.count });
   });
 
   app.post("/api/workflow/tasks/:id/approve", authenticateToken, (req: any, res: any) => {

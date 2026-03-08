@@ -32,19 +32,54 @@ export default function MyReimbursements() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [expandedClaim, setExpandedClaim] = useState<string | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; type: 'withdraw' | 'delete' | null; claimId: string | null }>({ isOpen: false, type: null, claimId: null });
+  const [workflowTasks, setWorkflowTasks] = useState<any[]>([]);
   const navigate = useNavigate();
 
   const fetchClaims = () => {
+    const token = localStorage.getItem('expense_token');
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
+    const savedUser = localStorage.getItem('expense_user');
+    const currentUserId = savedUser ? JSON.parse(savedUser)?.id : user?.id;
+    
+    if (!currentUserId) {
+      setLoading(false);
+      return;
+    }
+
     apiFetch('/api/claims')
       .then(res => res.json())
       .then(data => {
-        setClaims(data.filter((c: any) => c.claimant_id === user?.id));
+        if (Array.isArray(data)) {
+          setClaims(data.filter((c: any) => c.claimant_id === currentUserId));
+        } else {
+          setClaims([]);
+        }
         setLoading(false);
+      })
+      .catch(() => {
+        setClaims([]);
+        setLoading(false);
+      });
+  };
+
+  const fetchWorkflowTasks = () => {
+    apiFetch('/api/workflow/tasks')
+      .then(res => res.json())
+      .then(data => {
+        setWorkflowTasks(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        setWorkflowTasks([]);
       });
   };
 
   useEffect(() => {
     fetchClaims();
+    fetchWorkflowTasks();
   }, [user, apiFetch]);
 
   const filteredClaims = claims.filter(claim => {
@@ -57,8 +92,8 @@ export default function MyReimbursements() {
   const stats = {
     total: claims.length,
     pending: claims.filter(c => c.status === 'Pending' || c.status === 'Pending Finance').length,
-    approved: claims.filter(c => c.status === 'Approved').length,
-    totalAmount: claims.filter(c => c.status === 'Approved').reduce((sum, c) => sum + c.total_amount, 0),
+    approved: claims.filter(c => c.status === 'Approved' || c.status === 'Paid').length,
+    totalAmount: claims.filter(c => c.status === 'Approved' || c.status === 'Paid').reduce((sum, c) => sum + c.total_amount, 0),
   };
 
   const formatDate = (dateString: string) => {
@@ -165,6 +200,38 @@ export default function MyReimbursements() {
         <StatCard label="Approved" value={stats.approved} color="text-emerald-600" />
         <StatCard label="Total Reimbursed" value={`$${stats.totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} color="text-blue-600" />
       </div>
+
+      {workflowTasks.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-amber-600" />
+              Pending My Approval ({workflowTasks.length})
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {workflowTasks.map((task: any) => (
+              <div 
+                key={task.id}
+                className="bg-white border border-amber-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => navigate(`/approvals/${task.entity_id}?taskId=${task.id}`)}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                    <CheckCircle2 className="w-5 h-5 text-amber-600" />
+                  </div>
+                  <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-semibold rounded-full">
+                    Awaiting
+                  </span>
+                </div>
+                <h4 className="font-semibold text-slate-900 mb-1">{task.node_label || 'Approval Required'}</h4>
+                <p className="text-sm text-slate-500">From: {task.claimant_name}</p>
+                <p className="text-xs text-slate-400 mt-1">{task.claimant_department}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-center">
