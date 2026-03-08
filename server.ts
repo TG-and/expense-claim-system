@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import { initDatabase, initDb, getDb } from "./src/db/index";
+import { initDatabase, initDb, getDb, isTurso } from "./src/db/index";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -59,6 +59,31 @@ async function startServer() {
   // API routes
   app.get("/api/health", async (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  // Debug endpoint - check database status
+  app.get("/api/debug/db", async (req, res) => {
+    try {
+      const userCount = await db.prepare('SELECT COUNT(*) as count FROM users').get() as any;
+      const claimCount = await db.prepare('SELECT COUNT(*) as count FROM claims').get() as any;
+      res.json({ 
+        users: userCount?.count || 0, 
+        claims: claimCount?.count || 0,
+        isTurso: isTurso()
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Debug endpoint - force re-seed database
+  app.post("/api/debug/reseed", async (req, res) => {
+    try {
+      await initDb();
+      res.json({ success: true, message: "Database reseeded" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   // Auth routes
