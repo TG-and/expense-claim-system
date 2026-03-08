@@ -961,12 +961,11 @@ function createApp() {
   return app;
 }
 
-// For local development
-const PORT = 3008;
-const isVercel = process.env.VERCEL === '1';
+async function startServer() {
+  const PORT = 3008;
+  const isVercel = process.env.VERCEL === '1';
 
-if (!isVercel) {
-  createApp().then(async (app) => {
+  if (!isVercel) {
     const viteDevServer = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -976,8 +975,10 @@ if (!isVercel) {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
-  });
+  }
 }
+
+startServer();
 
 // Vercel serverless export
 export default createApp();
