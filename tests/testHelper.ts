@@ -6,22 +6,26 @@ const JWT_SECRET = 'claimflow-secret-key-2025';
 let app: express.Application;
 let server: any;
 
-export function initTestDb() {
-  initDb();
+export async function initTestDb() {
+  await initDb();
 }
 
 export function getDb() {
   return db;
 }
 
-export function resetTestDb() {
-  db.exec('DELETE FROM approvals');
-  db.exec('DELETE FROM requests');
-  db.exec('DELETE FROM claims');
-  db.exec('DELETE FROM notifications');
-  db.exec('DELETE FROM workflow_tasks');
-  db.exec('DELETE FROM workflow_history');
-  db.exec('DELETE FROM workflow_instances');
+export async function resetTestDb() {
+  try {
+    db.exec('DELETE FROM approvals');
+    db.exec('DELETE FROM requests');
+    db.exec('DELETE FROM claims');
+    db.exec('DELETE FROM notifications');
+    db.exec('DELETE FROM workflow_tasks');
+    db.exec('DELETE FROM workflow_history');
+    db.exec('DELETE FROM workflow_instances');
+  } catch (e) {
+    console.log('Tables may not exist yet, skipping reset');
+  }
 }
 
 export function createTestApp() {
