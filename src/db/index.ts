@@ -4,70 +4,82 @@ import Database from 'better-sqlite3';
 
 const hashPassword = (password: string) => bcrypt.hashSync(password, 10);
 
-const isTurso = process.env.TURSO_DB_URL !== undefined;
-
 let db: any;
 
-if (isTurso) {
-  const { createClient } = require('@libsql/client');
-  const tursoUrl = process.env.TURSO_DB_URL!;
-  const tursoToken = process.env.TURSO_AUTH_TOKEN!;
-  
-  const libsql = createClient({
-    url: tursoUrl,
-    authToken: tursoToken
-  });
-  
-  db = {
-    prepare: (sql: string) => ({
-      run: async (...params: any[]) => {
-        await libsql.execute({ sql, args: params });
-      },
-      get: async (...params: any[]) => {
-        const result = await libsql.execute({ sql, args: params });
-        return result.rows[0] || null;
-      },
-      all: async (...params: any[]) => {
-        const result = await libsql.execute({ sql, args: params });
-        return result.rows;
-      }
-    }),
-    exec: async (sql: string) => {
-      const statements = sql.split(';').filter((s: string) => s.trim());
-      for (const stmt of statements) {
-        if (stmt.trim()) {
-          await libsql.execute({ sql: stmt });
-        }
-      }
-    },
-    transaction: (fn: () => void) => {
-      return {
-        run: async (...params: any[]) => {
-          await libsql.execute({ sql: 'BEGIN' });
-          try {
-            fn();
-            await libsql.execute({ sql: 'COMMIT' });
-          } catch (e) {
-            await libsql.execute({ sql: 'ROLLBACK' });
-            throw e;
+export async function initDatabase(): Promise<typeof db> {
+  const tursoUrl = process.env.TURSO_DB_URL;
+  const tursoToken = process.env.TURSO_AUTH_TOKEN;
+  const isTurso = tursoUrl !== undefined && tursoToken !== undefined;
+
+  if (isTurso) {
+    console.log('Using Turso database:', tursoUrl);
+    try {
+      const { createClient } = await import('@libsql/client');
+      
+      const libsql = createClient({
+        url: tursoUrl,
+        authToken: tursoToken
+      });
+      
+      db = {
+        prepare: (sql: string) => ({
+          run: (...params: any[]) => libsql.execute({ sql, args: params }),
+          get: (...params: any[]) => libsql.execute({ sql, args: params }).then(r => r.rows[0] || null),
+          all: (...params: any[]) => libsql.execute({ sql, args: params }).then(r => r.rows)
+        }),
+        exec: (sql: string) => {
+          const statements = sql.split(';').filter((s: string) => s.trim());
+          return Promise.all(statements.map(stmt => stmt.trim() ? libsql.execute({ sql: stmt }) : null));
+        },
+        transaction: (fn: () => void) => ({
+          run: (...params: any[]) => {
+            return libsql.execute({ sql: 'BEGIN' }).then(() => {
+              try {
+                fn();
+                return libsql.execute({ sql: 'COMMIT' });
+              } catch (e) {
+                return libsql.execute({ sql: 'ROLLBACK' }).then(() => { throw e; });
+              }
+            });
           }
-        }
+        }),
+        _client: libsql
       };
-    },
-    _client: libsql
-  };
-  
-  console.log('Using Turso database:', tursoUrl);
-} else {
+      
+      return db;
+    } catch (error) {
+      console.error('Failed to connect to Turso, falling back to SQLite:', error);
+    }
+  }
+
   const dbPath = path.resolve(process.cwd(), 'data.db');
   db = new Database(dbPath);
   console.log('Using local SQLite database:', dbPath);
+  return db;
 }
 
-export { db };
+export function getDb() {
+  if (!db) {
+    throw new Error('Database not initialized. Call initDatabase() first.');
+  }
+  return db;
+}
 
-export function initDb() {
-  const createTablesSQL = `
+export async function initDb(): Promise<void> {
+  const tursoUrl = process.env.TURSO_DB_URL;
+  const tursoToken = process.env.TURSO_AUTH_TOKEN;
+  const isTurso = tursoUrl !== undefined && tursoToken !== undefined;
+
+  if (!db) {
+    if (isTurso) {
+      console.log('Error: Database not initialized. Call initDatabase() first.');
+      return;
+    }
+    const dbPath = path.resolve(process.cwd(), 'data.db');
+    db = new Database(dbPath);
+  }
+
+  const schema = `
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -263,13 +275,16 @@ export function initDb() {
     );
   `;
 
-  if (isTurso) {
-    db.exec(createTablesSQL);
+  if (isTurso && db._client) {
+    await db.exec(schema);
   } else {
-    db.exec(createTablesSQL);
+    db.exec(schema);
   }
 
-  const existingUsers = db.prepare('SELECT COUNT(*) as count FROM users').get();
+  const existingUsers = isTurso && db._client 
+    ? await db.prepare('SELECT COUNT(*) as count FROM users').get()
+    : db.prepare('SELECT COUNT(*) as count FROM users').get();
+  
   if (existingUsers?.count > 0) {
     return;
   }
@@ -298,10 +313,17 @@ export function initDb() {
   `);
 
   for (const user of users) {
-    insertUser.run(
-      user.id, user.name, user.email, user.password, user.role, user.department,
-      user.employee_number, user.job_title, user.hire_date, user.cost_center, user.location, user.manager_id
-    );
+    if (isTurso && db._client) {
+      await insertUser.run(
+        user.id, user.name, user.email, user.password, user.role, user.department,
+        user.employee_number, user.job_title, user.hire_date, user.cost_center, user.location, user.manager_id
+      );
+    } else {
+      insertUser.run(
+        user.id, user.name, user.email, user.password, user.role, user.department,
+        user.employee_number, user.job_title, user.hire_date, user.cost_center, user.location, user.manager_id
+      );
+    }
   }
 
   const companies = [
@@ -311,7 +333,8 @@ export function initDb() {
 
   const insertCompany = db.prepare('INSERT INTO companies (id, name, code) VALUES (?, ?, ?)');
   for (const company of companies) {
-    insertCompany.run(company.id, company.name, company.code);
+    if (isTurso && db._client) await insertCompany.run(company.id, company.name, company.code);
+    else insertCompany.run(company.id, company.name, company.code);
   }
 
   const vendors = [
@@ -324,7 +347,8 @@ export function initDb() {
 
   const insertVendor = db.prepare('INSERT INTO vendors (id, name, code, region, status) VALUES (?, ?, ?, ?, ?)');
   for (const vendor of vendors) {
-    insertVendor.run(vendor.id, vendor.name, vendor.code, vendor.region, vendor.status);
+    if (isTurso && db._client) await insertVendor.run(vendor.id, vendor.name, vendor.code, vendor.region, vendor.status);
+    else insertVendor.run(vendor.id, vendor.name, vendor.code, vendor.region, vendor.status);
   }
 
   const claims = [
@@ -347,7 +371,8 @@ export function initDb() {
   `);
 
   for (const claim of claims) {
-    insertClaim.run(claim.id, claim.claimant_id, claim.description, claim.total_amount, claim.currency, claim.status, claim.step, claim.created_at, claim.created_at);
+    if (isTurso && db._client) await insertClaim.run(claim.id, claim.claimant_id, claim.description, claim.total_amount, claim.currency, claim.status, claim.step, claim.created_at, claim.created_at);
+    else insertClaim.run(claim.id, claim.claimant_id, claim.description, claim.total_amount, claim.currency, claim.status, claim.step, claim.created_at, claim.created_at);
   }
 
   const requests = [
@@ -366,36 +391,44 @@ export function initDb() {
 
   const insertRequest = db.prepare(`
     INSERT INTO requests (id, claim_id, type, claimant_id, vendor_id, amount, currency, status, step, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const req of requests) {
-    insertRequest.run(req.id, req.claim_id, req.type, req.claimant_id, req.vendor_id, req.amount, req.currency, req.status, req.step, req.created_at, req.created_at);
+    if (isTurso && db._client) await insertRequest.run(req.id, req.claim_id, req.type, req.claimant_id, req.vendor_id, req.amount, req.currency, req.status, req.step, req.created_at, req.created_at);
+    else insertRequest.run(req.id, req.claim_id, req.type, req.claimant_id, req.vendor_id, req.amount, req.currency, req.status, req.step, req.created_at, req.created_at);
   }
 
-  const insertApproval = db.prepare('INSERT INTO approvals (id, request_id, approver_id, status, step, comments, node_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const insertApproval = db.prepare('INSERT INTO approvals (id, request_id, approver_id, status, step, comments, node_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   
-  insertApproval.run('a1', 'REQ-2001', 'u1', 'Approved', 1, 'Looks good, approved for travel.', 'node-manager', daysAgo(1));
-  insertApproval.run('a2', 'REQ-2002', 'u1', 'Approved', 1, 'Team lunch approved.', 'node-manager', daysAgo(2));
-  insertApproval.run('a3', 'REQ-2003', 'u1', 'Approved', 1, 'Approved for remote work.', 'node-manager', daysAgo(1));
-  insertApproval.run('a4', 'REQ-3001', 'u1', 'Approved', 1, 'Budget approved.', 'node-manager', daysAgo(3));
-  insertApproval.run('a5', 'REQ-3001', 'u1', 'Approved', 2, 'Finance reviewed and approved.', 'node-finance', daysAgo(2));
-  insertApproval.run('a6', 'REQ-3002', 'u1', 'Approved', 1, 'Client dinner approved.', 'node-manager', daysAgo(4));
-  insertApproval.run('a7', 'REQ-3002', 'u1', 'Approved', 2, 'Receipts verified.', 'node-finance', daysAgo(3));
-  insertApproval.run('a8', 'REQ-3003', 'u1', 'Approved', 1, 'Travel expense approved.', 'node-manager', daysAgo(3));
-  insertApproval.run('a9', 'REQ-3003', 'u1', 'Approved', 2, 'Finance verified.', 'node-finance', daysAgo(2));
-  insertApproval.run('a10', 'REQ-4001', 'u1', 'Approved', 1, 'Design team needs this.', 'node-manager', daysAgo(9));
-  insertApproval.run('a11', 'REQ-4001', 'u1', 'Approved', 2, 'Finance approved.', 'node-finance', daysAgo(8));
-  insertApproval.run('a12', 'REQ-4001', 'u1', 'Approved', 3, 'Payment processed via ACH.', 'node-payment', daysAgo(7));
-  insertApproval.run('a13', 'REQ-4002', 'u1', 'Approved', 1, 'Standard travel expense.', 'node-manager', daysAgo(11));
-  insertApproval.run('a14', 'REQ-4002', 'u1', 'Approved', 2, 'Finance approved.', 'node-finance', daysAgo(10));
-  insertApproval.run('a15', 'REQ-4002', 'u1', 'Approved', 3, 'Paid via corporate card.', 'node-payment', daysAgo(9));
-  insertApproval.run('a16', 'REQ-4003', 'u1', 'Approved', 1, 'Approved.', 'node-manager', daysAgo(14));
-  insertApproval.run('a17', 'REQ-4003', 'u1', 'Approved', 2, 'Finance approved.', 'node-finance', daysAgo(13));
-  insertApproval.run('a18', 'REQ-4003', 'u1', 'Approved', 3, 'Paid.', 'node-payment', daysAgo(12));
-  insertApproval.run('a19', 'REQ-5001', 'u1', 'Rejected', 1, 'This event was not pre-approved. Please provide justification.', 'node-manager', daysAgo(1));
-  insertApproval.run('a20', 'REQ-5002', 'u1', 'Approved', 1, 'Manager approved, pending finance review.', 'node-manager', daysAgo(5));
-  insertApproval.run('a21', 'REQ-5002', 'u1', 'Rejected', 2, 'Exceeds Q3 hardware budget. Please defer to Q4.', 'node-finance', daysAgo(4));
+  const approvals = [
+    ['a1', 'REQ-2001', 'u1', 'Approved', 1, 'Looks good, approved for travel.', 'node-manager', daysAgo(1), daysAgo(1)],
+    ['a2', 'REQ-2002', 'u1', 'Approved', 1, 'Team lunch approved.', 'node-manager', daysAgo(2), daysAgo(2)],
+    ['a3', 'REQ-2003', 'u1', 'Approved', 1, 'Approved for remote work.', 'node-manager', daysAgo(1), daysAgo(1)],
+    ['a4', 'REQ-3001', 'u1', 'Approved', 1, 'Budget approved.', 'node-manager', daysAgo(3), daysAgo(3)],
+    ['a5', 'REQ-3001', 'u1', 'Approved', 2, 'Finance reviewed and approved.', 'node-finance', daysAgo(2), daysAgo(2)],
+    ['a6', 'REQ-3002', 'u1', 'Approved', 1, 'Client dinner approved.', 'node-manager', daysAgo(4), daysAgo(4)],
+    ['a7', 'REQ-3002', 'u1', 'Approved', 2, 'Receipts verified.', 'node-finance', daysAgo(3), daysAgo(3)],
+    ['a8', 'REQ-3003', 'u1', 'Approved', 1, 'Travel expense approved.', 'node-manager', daysAgo(3), daysAgo(3)],
+    ['a9', 'REQ-3003', 'u1', 'Approved', 2, 'Finance verified.', 'node-finance', daysAgo(2), daysAgo(2)],
+    ['a10', 'REQ-4001', 'u1', 'Approved', 1, 'Design team needs this.', 'node-manager', daysAgo(9), daysAgo(9)],
+    ['a11', 'REQ-4001', 'u1', 'Approved', 2, 'Finance approved.', 'node-finance', daysAgo(8), daysAgo(8)],
+    ['a12', 'REQ-4001', 'u1', 'Approved', 3, 'Payment processed via ACH.', 'node-payment', daysAgo(7), daysAgo(7)],
+    ['a13', 'REQ-4002', 'u1', 'Approved', 1, 'Standard travel expense.', 'node-manager', daysAgo(11), daysAgo(11)],
+    ['a14', 'REQ-4002', 'u1', 'Approved', 2, 'Finance approved.', 'node-finance', daysAgo(10), daysAgo(10)],
+    ['a15', 'REQ-4002', 'u1', 'Approved', 3, 'Paid via corporate card.', 'node-payment', daysAgo(9), daysAgo(9)],
+    ['a16', 'REQ-4003', 'u1', 'Approved', 1, 'Approved.', 'node-manager', daysAgo(14), daysAgo(14)],
+    ['a17', 'REQ-4003', 'u1', 'Approved', 2, 'Finance approved.', 'node-finance', daysAgo(13), daysAgo(13)],
+    ['a18', 'REQ-4003', 'u1', 'Approved', 3, 'Paid.', 'node-payment', daysAgo(12), daysAgo(12)],
+    ['a19', 'REQ-5001', 'u1', 'Rejected', 1, 'This event was not pre-approved. Please provide justification.', 'node-manager', daysAgo(1), daysAgo(1)],
+    ['a20', 'REQ-5002', 'u1', 'Approved', 1, 'Manager approved, pending finance review.', 'node-manager', daysAgo(5), daysAgo(5)],
+    ['a21', 'REQ-5002', 'u1', 'Rejected', 2, 'Exceeds Q3 hardware budget. Please defer to Q4.', 'node-finance', daysAgo(4), daysAgo(4)],
+  ];
+
+  for (const a of approvals) {
+    if (isTurso && db._client) await insertApproval.run(...a);
+    else insertApproval.run(...a);
+  }
 
   const defaultWorkflow = {
     id: 'wf-1',
@@ -419,19 +452,34 @@ export function initDb() {
     ])
   };
 
-  db.prepare(`
+  const insertWorkflow = db.prepare(`
     INSERT INTO workflows (id, name, description, entity_type, is_default, is_active, nodes, edges)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    defaultWorkflow.id,
-    defaultWorkflow.name,
-    defaultWorkflow.description,
-    defaultWorkflow.entity_type,
-    defaultWorkflow.is_default,
-    defaultWorkflow.is_active,
-    defaultWorkflow.nodes,
-    defaultWorkflow.edges
-  );
+  `);
+
+  if (isTurso && db._client) {
+    await insertWorkflow.run(
+      defaultWorkflow.id,
+      defaultWorkflow.name,
+      defaultWorkflow.description,
+      defaultWorkflow.entity_type,
+      defaultWorkflow.is_default,
+      defaultWorkflow.is_active,
+      defaultWorkflow.nodes,
+      defaultWorkflow.edges
+    );
+  } else {
+    insertWorkflow.run(
+      defaultWorkflow.id,
+      defaultWorkflow.name,
+      defaultWorkflow.description,
+      defaultWorkflow.entity_type,
+      defaultWorkflow.is_default,
+      defaultWorkflow.is_active,
+      defaultWorkflow.nodes,
+      defaultWorkflow.edges
+    );
+  }
 
   const workflowNodes = [
     { id: 'node-start', workflow_id: 'wf-1', node_type: 'start', label: 'Submit', position_x: 100, position_y: 200, approver_role: null },
@@ -447,8 +495,9 @@ export function initDb() {
   `);
 
   for (const node of workflowNodes) {
-    insertWorkflowNode.run(node.id, node.workflow_id, node.node_type, node.label, node.position_x, node.position_y, node.approver_role, node.condition);
+    if (isTurso && db._client) await insertWorkflowNode.run(node.id, node.workflow_id, node.node_type, node.label, node.position_x, node.position_y, node.approver_role, node.condition);
+    else insertWorkflowNode.run(node.id, node.workflow_id, node.node_type, node.label, node.position_x, node.position_y, node.approver_role, node.condition);
   }
 }
 
-export default db;
+export { db };

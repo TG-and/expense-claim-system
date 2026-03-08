@@ -1,6 +1,7 @@
+import 'dotenv/config';
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import { initDb, db } from "./src/db/index";
+import { initDatabase, initDb, getDb } from "./src/db/index";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -31,6 +32,10 @@ const upload = multer({ storage: storage });
 async function startServer() {
   const app = express();
   const PORT = 3008;
+
+  await initDatabase();
+  await initDb();
+  const db = getDb();
 
   app.use(cors());
   app.use(express.json());
