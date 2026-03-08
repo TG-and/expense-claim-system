@@ -152,7 +152,7 @@ async function startServer() {
   });
 
   // Get current user info
-  app.get("/api/auth/me", authenticateToken, (req: any, res: any) => {
+  app.get("/api/auth/me", authenticateToken, async (req: any, res: any) => {
     const user = await db.prepare('SELECT id, name, email, role, department, avatar FROM users WHERE id = ?').get(req.user.userId) as any;
     if (!user) {
       return res.status(404).json({ error: "User not found" });
@@ -375,7 +375,7 @@ async function startServer() {
     res.json(vendors);
   });
 
-  app.get("/api/admin/users", authenticateToken, (req: any, res: any) => {
+  app.get("/api/admin/users", authenticateToken, async (req: any, res: any) => {
     if (req.user.role !== 'Admin' && req.user.role !== 'Finance Lead') {
       return res.status(403).json({ error: "Access denied" });
     }
@@ -425,7 +425,7 @@ async function startServer() {
   });
 
   // Claims API
-  app.get("/api/claims", authenticateToken, (req: any, res: any) => {
+  app.get("/api/claims", authenticateToken, async (req: any, res: any) => {
     const user = req.user;
     let claims;
     
@@ -734,7 +734,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/claims/:id/approve", authenticateToken, (req: any, res: any) => {
+  app.post("/api/claims/:id/approve", authenticateToken, async (req: any, res: any) => {
     const claimId = req.params.id;
     const user = req.user;
     const { comments } = req.body;
@@ -793,7 +793,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/claims/:id/reject", authenticateToken, (req: any, res: any) => {
+  app.post("/api/claims/:id/reject", authenticateToken, async (req: any, res: any) => {
     const claimId = req.params.id;
     const user = req.user;
     const { comments } = req.body;
@@ -1130,7 +1130,7 @@ async function startServer() {
   });
 
   // Notification APIs
-  app.get("/api/notifications", authenticateToken, (req: any, res: any) => {
+  app.get("/api/notifications", authenticateToken, async (req: any, res: any) => {
     const notifications = await db.prepare(`
       SELECT * FROM notifications 
       WHERE user_id = ? 
@@ -1140,7 +1140,7 @@ async function startServer() {
     res.json(notifications);
   });
 
-  app.get("/api/notifications/unread-count", authenticateToken, (req: any, res: any) => {
+  app.get("/api/notifications/unread-count", authenticateToken, async (req: any, res: any) => {
     const result = await db.prepare(`
       SELECT COUNT(*) as count FROM notifications 
       WHERE user_id = ? AND is_read = 0
@@ -1148,20 +1148,20 @@ async function startServer() {
     res.json({ count: result.count });
   });
 
-  app.post("/api/notifications/:id/read", authenticateToken, (req: any, res: any) => {
+  app.post("/api/notifications/:id/read", authenticateToken, async (req: any, res: any) => {
     await db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?')
       .run(req.params.id, req.user.userId);
     res.json({ success: true });
   });
 
-  app.post("/api/notifications/read-all", authenticateToken, (req: any, res: any) => {
+  app.post("/api/notifications/read-all", authenticateToken, async (req: any, res: any) => {
     await db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?')
       .run(req.user.userId);
     res.json({ success: true });
   });
 
   // Organization APIs
-  app.get("/api/org-chart", authenticateToken, (req: any, res: any) => {
+  app.get("/api/org-chart", authenticateToken, async (req: any, res: any) => {
     const orgChart = await db.prepare(`
       SELECT 
         d.id, d.name as department_name, d.code,
@@ -1174,7 +1174,7 @@ async function startServer() {
     res.json(orgChart);
   });
 
-  app.get("/api/users/:id/approvers", authenticateToken, (req: any, res: any) => {
+  app.get("/api/users/:id/approvers", authenticateToken, async (req: any, res: any) => {
     const userId = req.params.id;
     
     const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
@@ -1237,7 +1237,7 @@ async function startServer() {
   });
 
   // HR Integration APIs
-  app.post("/api/hr/sync", authenticateToken, (req: any, res: any) => {
+  app.post("/api/hr/sync", authenticateToken, async (req: any, res: any) => {
     const { employees } = req.body;
     
     if (!employees || !Array.isArray(employees)) {
@@ -1291,7 +1291,7 @@ async function startServer() {
     res.json(results);
   });
 
-  app.get("/api/hr/sync-history", authenticateToken, (req: any, res: any) => {
+  app.get("/api/hr/sync-history", authenticateToken, async (req: any, res: any) => {
     const history = await db.prepare(`
       SELECT * FROM hr_sync_log 
       ORDER BY created_at DESC 
@@ -1300,7 +1300,7 @@ async function startServer() {
     res.json(history);
   });
 
-  app.get("/api/hr/validate", authenticateToken, (req: any, res: any) => {
+  app.get("/api/hr/validate", authenticateToken, async (req: any, res: any) => {
     const invalidManagers = db.prepare(`
       SELECT u.id, u.name, u.email, u.manager_id
       FROM users u
@@ -1320,7 +1320,7 @@ async function startServer() {
   });
 
   // Workflow Execution Engine APIs
-  app.post("/api/workflow/instances", authenticateToken, (req: any, res: any) => {
+  app.post("/api/workflow/instances", authenticateToken, async (req: any, res: any) => {
     const { workflow_id, entity_type, entity_id, variables } = req.body;
     const claimant_id = req.user.userId;
 
@@ -1374,7 +1374,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/workflow/tasks", authenticateToken, (req: any, res: any) => {
+  app.get("/api/workflow/tasks", authenticateToken, async (req: any, res: any) => {
     const tasks = db.prepare(`
       SELECT 
         t.*,
@@ -1396,7 +1396,7 @@ async function startServer() {
     res.json(tasks);
   });
 
-  app.get("/api/workflow/tasks/count", authenticateToken, (req: any, res: any) => {
+  app.get("/api/workflow/tasks/count", authenticateToken, async (req: any, res: any) => {
     const count = db.prepare(`
       SELECT COUNT(*) as count
       FROM workflow_tasks t
@@ -1405,7 +1405,7 @@ async function startServer() {
     res.json({ count: count.count });
   });
 
-  app.post("/api/workflow/tasks/:id/approve", authenticateToken, (req: any, res: any) => {
+  app.post("/api/workflow/tasks/:id/approve", authenticateToken, async (req: any, res: any) => {
     const taskId = req.params.id;
     const { comments } = req.body;
     const approverId = req.user.userId;
@@ -1486,7 +1486,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/workflow/tasks/:id/reject", authenticateToken, (req: any, res: any) => {
+  app.post("/api/workflow/tasks/:id/reject", authenticateToken, async (req: any, res: any) => {
     const taskId = req.params.id;
     const { comments } = req.body;
     const approverId = req.user.userId;
@@ -1528,7 +1528,7 @@ async function startServer() {
     }
   });
 
-  app.post("/api/workflow/tasks/:id/delegate", authenticateToken, (req: any, res: any) => {
+  app.post("/api/workflow/tasks/:id/delegate", authenticateToken, async (req: any, res: any) => {
     const taskId = req.params.id;
     const { new_assignee_id } = req.body;
     const currentUserId = req.user.userId;
@@ -1559,7 +1559,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/workflow/instances/:id/history", authenticateToken, (req: any, res: any) => {
+  app.get("/api/workflow/instances/:id/history", authenticateToken, async (req: any, res: any) => {
     const id = req.params.id;
 
     let instance = await db.prepare('SELECT * FROM workflow_instances WHERE id = ?').get(id) as any;
@@ -1583,7 +1583,7 @@ async function startServer() {
     res.json({ instance, tasks });
   });
 
-  app.get("/api/workflow/approval-path", authenticateToken, (req: any, res: any) => {
+  app.get("/api/workflow/approval-path", authenticateToken, async (req: any, res: any) => {
     const claimantId = req.query.claimant_id as string;
     const amount = parseFloat(req.query.amount as string) || 0;
 
@@ -1676,7 +1676,7 @@ async function startServer() {
   });
 
   // Audit Log API
-  app.post("/api/audit-logs", authenticateToken, (req: any, res: any) => {
+  app.post("/api/audit-logs", authenticateToken, async (req: any, res: any) => {
     const { action, entity_type, entity_id, details } = req.body;
     
     const logId = `log_${Date.now()}`;
@@ -1688,7 +1688,7 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.get("/api/audit-logs", authenticateToken, (req: any, res: any) => {
+  app.get("/api/audit-logs", authenticateToken, async (req: any, res: any) => {
     const { entity_type, entity_id } = req.query;
     
     let query = 'SELECT * FROM audit_logs';
