@@ -1705,24 +1705,28 @@ async function startServer() {
     res.json(logs);
   });
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static("dist"));
-    // SPA fallback - serve index.html for all routes
-    app.get('*', (req, res) => {
-      res.sendFile('dist/index.html');
-    });
-  }
-
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+// Vercel serverless export
+const viteDevServer = process.env.NODE_ENV === 'production' 
+  ? undefined 
+  : await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+
+if (viteDevServer) {
+  app.use(viteDevServer.middlewares);
+} else {
+  app.use(express.static("dist"));
+  app.get('*', (req, res) => {
+    res.sendFile('dist/index.html');
+  });
+}
+
+startServer().catch(console.error);
+
+export default app;
