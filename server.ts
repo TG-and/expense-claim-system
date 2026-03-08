@@ -41,10 +41,10 @@ async function startServer() {
   app.use(express.json());
 
   // Auth middleware - extract user from header (set by frontend)
-  app.use((req, res, next) => {
+  app.use(async (req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     if (userId) {
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+      const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
       if (user) {
         (req as any).user = user;
       }
@@ -57,12 +57,12 @@ async function startServer() {
   initDb();
 
   // API routes
-  app.get("/api/health", (req, res) => {
+  app.get("/api/health", async (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
   // Auth routes
-  app.post("/api/auth/login", (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     console.log('Login attempt:', req.body.email);
     const { email, password } = req.body;
     
@@ -71,7 +71,7 @@ async function startServer() {
     }
 
     try {
-      const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+      const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
       
       if (!user) {
         return res.status(401).json({ error: "Invalid email or password" });
@@ -122,20 +122,20 @@ async function startServer() {
     }
   };
 
-  app.post("/api/auth/logout", (req, res) => {
+  app.post("/api/auth/logout", async (req, res) => {
     res.json({ success: true });
   });
 
   // Get current user info
   app.get("/api/auth/me", authenticateToken, (req: any, res: any) => {
-    const user = db.prepare('SELECT id, name, email, role, department, avatar FROM users WHERE id = ?').get(req.user.userId) as any;
+    const user = await db.prepare('SELECT id, name, email, role, department, avatar FROM users WHERE id = ?').get(req.user.userId) as any;
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
     res.json(user);
   });
 
-  app.put("/api/auth/profile", (req, res) => {
+  app.put("/api/auth/profile", async (req, res) => {
     const userId = req.headers['x-user-id'] as string;
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -143,18 +143,18 @@ async function startServer() {
     const { name, avatar } = req.body;
     
     if (name) {
-      db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, userId);
+      await db.prepare('UPDATE users SET name = ? WHERE id = ?').run(name, userId);
     }
     if (avatar) {
-      db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, userId);
+      await db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, userId);
     }
     
-    const user = db.prepare('SELECT id, name, email, role, department, avatar FROM users WHERE id = ?').get(userId) as any;
+    const user = await db.prepare('SELECT id, name, email, role, department, avatar FROM users WHERE id = ?').get(userId) as any;
     res.json(user);
   });
 
-  app.get("/api/requests", (req, res) => {
-    const requests = db.prepare(`
+  app.get("/api/requests", async (req, res) => {
+    const requests = await db.prepare(`
       SELECT r.*, u.name as claimant_name, u.department, u.avatar, v.name as vendor_name
       FROM requests r
       JOIN users u ON r.claimant_id = u.id
@@ -164,8 +164,8 @@ async function startServer() {
     res.json(requests);
   });
 
-  app.get("/api/requests/:id", (req, res) => {
-    const request = db.prepare(`
+  app.get("/api/requests/:id", async (req, res) => {
+    const request = await db.prepare(`
       SELECT r.*, u.name as claimant_name, u.department, u.avatar, v.name as vendor_name
       FROM requests r
       JOIN users u ON r.claimant_id = u.id
@@ -177,7 +177,7 @@ async function startServer() {
       return res.status(404).json({ error: "Request not found" });
     }
 
-    const approvals = db.prepare(`
+    const approvals = await db.prepare(`
       SELECT a.*, u.name as approver_name, u.avatar
       FROM approvals a
       JOIN users u ON a.approver_id = u.id
@@ -188,7 +188,7 @@ async function startServer() {
     res.json({ ...request, approvals });
   });
 
-  app.post("/api/requests", (req, res) => {
+  app.post("/api/requests", async (req, res) => {
     const { type, claimant_id, vendor_id, amount, currency, description, attachment_url } = req.body;
     const id = `REQ-${Math.floor(1000 + Math.random() * 9000)}`;
     
@@ -205,12 +205,12 @@ async function startServer() {
     }
   });
 
-  app.post("/api/requests/:id/approve", (req, res) => {
+  app.post("/api/requests/:id/approve", async (req, res) => {
     const { approver_id, comments } = req.body;
     const requestId = req.params.id;
     
     try {
-      const request = db.prepare('SELECT step, workflow_id, current_node_id, claim_id FROM requests WHERE id = ?').get(requestId) as { step: number; workflow_id: string | null; current_node_id: string | null; claim_id: string | null };
+      const request = await db.prepare('SELECT step, workflow_id, current_node_id, claim_id FROM requests WHERE id = ?').get(requestId) as { step: number; workflow_id: string | null; current_node_id: string | null; claim_id: string | null };
       if (!request) return res.status(404).json({ error: "Request not found" });
 
       const approvalId = `a${Math.floor(Math.random() * 10000)}`;
@@ -220,7 +220,7 @@ async function startServer() {
       let nextNodeId = request.current_node_id;
 
       if (request.workflow_id) {
-        const workflow = db.prepare('SELECT nodes, edges FROM workflows WHERE id = ?').get(request.workflow_id) as { nodes: string; edges: string } | undefined;
+        const workflow = await db.prepare('SELECT nodes, edges FROM workflows WHERE id = ?').get(request.workflow_id) as { nodes: string; edges: string } | undefined;
         
         if (workflow) {
           const nodes = JSON.parse(workflow.nodes);
@@ -260,18 +260,18 @@ async function startServer() {
           VALUES (?, ?, ?, 'Approved', ?, ?, ?)
         `).run(approvalId, requestId, approver_id, request.step, comments || '', request.current_node_id);
 
-        db.prepare('UPDATE requests SET step = ?, status = ?, current_node_id = ? WHERE id = ?').run(nextStep, newStatus, nextNodeId, requestId);
+        await db.prepare('UPDATE requests SET step = ?, status = ?, current_node_id = ? WHERE id = ?').run(nextStep, newStatus, nextNodeId, requestId);
 
         if (request.claim_id) {
           const claimStatus = newStatus === 'Approved' ? 'Approved' : newStatus;
-          db.prepare('UPDATE claims SET step = ?, status = ? WHERE id = ?').run(nextStep, claimStatus, request.claim_id);
+          await db.prepare('UPDATE claims SET step = ?, status = ? WHERE id = ?').run(nextStep, claimStatus, request.claim_id);
 
-          const instance = db.prepare('SELECT id FROM workflow_instances WHERE entity_id = ? AND status = ?').get(request.claim_id, 'running') as { id: string } | undefined;
+          const instance = await db.prepare('SELECT id FROM workflow_instances WHERE entity_id = ? AND status = ?').get(request.claim_id, 'running') as { id: string } | undefined;
           if (instance) {
             if (newStatus === 'Approved' && nextStep === 99) {
-              db.prepare('UPDATE workflow_instances SET current_node_id = ?, status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?').run(nextNodeId, 'completed', instance.id);
+              await db.prepare('UPDATE workflow_instances SET current_node_id = ?, status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?').run(nextNodeId, 'completed', instance.id);
             } else {
-              db.prepare('UPDATE workflow_instances SET current_node_id = ? WHERE id = ?').run(nextNodeId, instance.id);
+              await db.prepare('UPDATE workflow_instances SET current_node_id = ? WHERE id = ?').run(nextNodeId, instance.id);
             }
             
             db.prepare(`
@@ -289,12 +289,12 @@ async function startServer() {
     }
   });
 
-  app.post("/api/requests/:id/reject", (req, res) => {
+  app.post("/api/requests/:id/reject", async (req, res) => {
     const { approver_id, comments } = req.body;
     const requestId = req.params.id;
     
     try {
-      const request = db.prepare('SELECT step, workflow_id, current_node_id, claim_id FROM requests WHERE id = ?').get(requestId) as { step: number; workflow_id: string | null; current_node_id: string | null; claim_id: string | null };
+      const request = await db.prepare('SELECT step, workflow_id, current_node_id, claim_id FROM requests WHERE id = ?').get(requestId) as { step: number; workflow_id: string | null; current_node_id: string | null; claim_id: string | null };
       if (!request) return res.status(404).json({ error: "Request not found" });
 
       const approvalId = `a${Math.floor(Math.random() * 10000)}`;
@@ -305,14 +305,14 @@ async function startServer() {
           VALUES (?, ?, ?, 'Rejected', ?, ?, ?)
         `).run(approvalId, requestId, approver_id, request.step, comments || '', request.current_node_id);
 
-        db.prepare('UPDATE requests SET status = ? WHERE id = ?').run('Rejected', requestId);
+        await db.prepare('UPDATE requests SET status = ? WHERE id = ?').run('Rejected', requestId);
 
         if (request.claim_id) {
-          db.prepare('UPDATE claims SET status = ? WHERE id = ?').run('Rejected', request.claim_id);
+          await db.prepare('UPDATE claims SET status = ? WHERE id = ?').run('Rejected', request.claim_id);
 
-          const instance = db.prepare('SELECT id FROM workflow_instances WHERE entity_id = ? AND status = ?').get(request.claim_id, 'running') as { id: string } | undefined;
+          const instance = await db.prepare('SELECT id FROM workflow_instances WHERE entity_id = ? AND status = ?').get(request.claim_id, 'running') as { id: string } | undefined;
           if (instance) {
-            db.prepare('UPDATE workflow_instances SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?').run('rejected', instance.id);
+            await db.prepare('UPDATE workflow_instances SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?').run('rejected', instance.id);
             
             db.prepare(`
               INSERT INTO workflow_history (id, instance_id, node_id, action, actor_id, comments)
@@ -329,7 +329,7 @@ async function startServer() {
     }
   });
 
-  app.get("/api/search", (req, res) => {
+  app.get("/api/search", async (req, res) => {
     const query = req.query.q;
     if (!query) return res.json([]);
     
@@ -345,8 +345,8 @@ async function startServer() {
     res.json(results);
   });
 
-  app.get("/api/vendors", (req, res) => {
-    const vendors = db.prepare('SELECT * FROM vendors').all();
+  app.get("/api/vendors", async (req, res) => {
+    const vendors = await db.prepare('SELECT * FROM vendors').all();
     res.json(vendors);
   });
 
@@ -356,7 +356,7 @@ async function startServer() {
     }
     
     try {
-      const users = db.prepare(`
+      const users = await db.prepare(`
         SELECT 
           id, 
           name, 
@@ -378,7 +378,7 @@ async function startServer() {
         ORDER BY name ASC
       `).all();
       
-      const companies = db.prepare('SELECT id, name FROM companies').all();
+      const companies = await db.prepare('SELECT id, name FROM companies').all();
       const companiesMap = Object.fromEntries(companies.map((c: any) => [c.id, c.name]));
       
       const result = users.map((u: any) => ({
@@ -394,8 +394,8 @@ async function startServer() {
     }
   });
 
-  app.get("/api/users", (req, res) => {
-    const users = db.prepare('SELECT id, name, email, role, department, avatar FROM users').all();
+  app.get("/api/users", async (req, res) => {
+    const users = await db.prepare('SELECT id, name, email, role, department, avatar FROM users').all();
     res.json(users);
   });
 
@@ -434,7 +434,7 @@ async function startServer() {
     }
     
     const claimsWithItems = claims.map(claim => {
-      const items = db.prepare(`
+      const items = await db.prepare(`
         SELECT r.*, v.name as vendor_name
         FROM requests r
         LEFT JOIN vendors v ON r.vendor_id = v.id
@@ -448,7 +448,7 @@ async function startServer() {
   });
 
   // Approvals API - returns claims that the user can approve
-  app.get("/api/approvals", (req, res) => {
+  app.get("/api/approvals", async (req, res) => {
     const user = (req as any).user;
     
     if (!user) {
@@ -490,7 +490,7 @@ async function startServer() {
     }
     
     const claimsWithItems = claims.map(claim => {
-      const items = db.prepare(`
+      const items = await db.prepare(`
         SELECT r.*, v.name as vendor_name
         FROM requests r
         LEFT JOIN vendors v ON r.vendor_id = v.id
@@ -503,7 +503,7 @@ async function startServer() {
     res.json(claimsWithItems);
   });
 
-  app.get("/api/claims/:id", (req, res) => {
+  app.get("/api/claims/:id", async (req, res) => {
     const claim = db.prepare(`
       SELECT c.*, u.name as claimant_name, u.department, u.avatar
       FROM claims c
@@ -515,14 +515,14 @@ async function startServer() {
       return res.status(404).json({ error: "Claim not found" });
     }
 
-    const items = db.prepare(`
+    const items = await db.prepare(`
       SELECT r.*, v.name as vendor_name
       FROM requests r
       LEFT JOIN vendors v ON r.vendor_id = v.id
       WHERE r.claim_id = ?
     `).all(req.params.id);
 
-    const approvals = db.prepare(`
+    const approvals = await db.prepare(`
       SELECT a.*, u.name as approver_name, u.avatar
       FROM approvals a
       JOIN users u ON a.approver_id = u.id
@@ -533,7 +533,7 @@ async function startServer() {
     res.json({ ...claim, items, approvals });
   });
 
-  app.post("/api/claims", (req, res) => {
+  app.post("/api/claims", async (req, res) => {
     const { description, claimant_id, items } = req.body;
     const claimId = `CLM-${Math.floor(1000 + Math.random() * 9000)}`;
     
@@ -541,7 +541,7 @@ async function startServer() {
     const currency = items[0]?.currency || 'USD';
     
     try {
-      const defaultWorkflow = db.prepare(`
+      const defaultWorkflow = await db.prepare(`
         SELECT * FROM workflows WHERE entity_type = 'claim' AND is_default = 1 AND is_active = 1
       `).get() as { id: string; name: string; nodes: string; edges: string } | undefined;
 
@@ -581,7 +581,7 @@ async function startServer() {
           const nodes = JSON.parse(defaultWorkflow.nodes);
           const edges = JSON.parse(defaultWorkflow.edges);
           
-          const claimant = db.prepare('SELECT manager_id FROM users WHERE id = ?').get(claimant_id) as { manager_id: string } | undefined;
+          const claimant = await db.prepare('SELECT manager_id FROM users WHERE id = ?').get(claimant_id) as { manager_id: string } | undefined;
           
           const visited = new Set<string>();
           let currentNodeId2: string | null = nodes.find((n: any) => n.data?.nodeType === 'start')?.id || null;
@@ -598,10 +598,10 @@ async function startServer() {
               if (node.data?.approverRole === 'Manager' || !node.data?.approverRole) {
                 assigneeId = claimant?.manager_id || claimant_id;
               } else if (node.data?.approverRole) {
-                const approver = db.prepare('SELECT id FROM users WHERE role = ? AND is_active = 1').get(node.data.approverRole) as { id: string } | undefined;
+                const approver = await db.prepare('SELECT id FROM users WHERE role = ? AND is_active = 1').get(node.data.approverRole) as { id: string } | undefined;
                 assigneeId = approver?.id || claimant_id;
               } else if (node.data?.approverDepartment) {
-                const approver = db.prepare('SELECT id FROM users WHERE department = ? AND is_active = 1').get(node.data.approverDepartment) as { id: string } | undefined;
+                const approver = await db.prepare('SELECT id FROM users WHERE department = ? AND is_active = 1').get(node.data.approverDepartment) as { id: string } | undefined;
                 assigneeId = approver?.id || claimant_id;
               }
               
@@ -665,11 +665,11 @@ async function startServer() {
     }
   });
 
-  app.post("/api/claims/:id/withdraw", (req, res) => {
+  app.post("/api/claims/:id/withdraw", async (req, res) => {
     const claimId = req.params.id;
     
     try {
-      const claim = db.prepare('SELECT status FROM claims WHERE id = ?').get(claimId) as { status: string };
+      const claim = await db.prepare('SELECT status FROM claims WHERE id = ?').get(claimId) as { status: string };
       if (!claim) return res.status(404).json({ error: "Claim not found" });
       
       if (claim.status !== 'Pending' && claim.status !== 'Pending Finance') {
@@ -677,8 +677,8 @@ async function startServer() {
       }
 
       db.transaction(() => {
-        db.prepare('UPDATE requests SET status = ? WHERE claim_id = ?').run('Draft', claimId);
-        db.prepare('UPDATE claims SET status = ?, step = 0 WHERE id = ?').run('Draft', claimId);
+        await db.prepare('UPDATE requests SET status = ? WHERE claim_id = ?').run('Draft', claimId);
+        await db.prepare('UPDATE claims SET status = ?, step = 0 WHERE id = ?').run('Draft', claimId);
       })();
       
       res.json({ success: true });
@@ -687,11 +687,11 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/claims/:id", (req, res) => {
+  app.delete("/api/claims/:id", async (req, res) => {
     const claimId = req.params.id;
     
     try {
-      const claim = db.prepare('SELECT status FROM claims WHERE id = ?').get(claimId) as { status: string };
+      const claim = await db.prepare('SELECT status FROM claims WHERE id = ?').get(claimId) as { status: string };
       if (!claim) return res.status(404).json({ error: "Claim not found" });
       
       if (claim.status !== 'Draft' && claim.status !== 'Withdrawn') {
@@ -699,8 +699,8 @@ async function startServer() {
       }
 
       db.transaction(() => {
-        db.prepare('DELETE FROM requests WHERE claim_id = ?').run(claimId);
-        db.prepare('DELETE FROM claims WHERE id = ?').run(claimId);
+        await db.prepare('DELETE FROM requests WHERE claim_id = ?').run(claimId);
+        await db.prepare('DELETE FROM claims WHERE id = ?').run(claimId);
       })();
       
       res.json({ success: true });
@@ -719,7 +719,7 @@ async function startServer() {
     }
     
     try {
-      const claim = db.prepare('SELECT status, step, claimant_id FROM claims WHERE id = ?').get(claimId) as { status: string; step: number; claimant_id: string };
+      const claim = await db.prepare('SELECT status, step, claimant_id FROM claims WHERE id = ?').get(claimId) as { status: string; step: number; claimant_id: string };
       if (!claim) return res.status(404).json({ error: "Claim not found" });
       
       // Role-based approval check
@@ -748,16 +748,16 @@ async function startServer() {
       }
 
       db.transaction(() => {
-        db.prepare('UPDATE claims SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, newStep, claimId);
+        await db.prepare('UPDATE claims SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, newStep, claimId);
         
-        const items = db.prepare('SELECT id FROM requests WHERE claim_id = ?').all(claimId) as { id: string }[];
+        const items = await db.prepare('SELECT id FROM requests WHERE claim_id = ?').all(claimId) as { id: string }[];
         for (const item of items) {
           db.prepare(`
             INSERT INTO approvals (id, request_id, approver_id, status, step, comments)
             VALUES (?, ?, ?, ?, ?, ?)
           `).run(`APR-${Math.floor(1000 + Math.random() * 9000)}`, item.id, user.id, 'Approved', newStep - 1, comments || null);
           
-          db.prepare('UPDATE requests SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, newStep, item.id);
+          await db.prepare('UPDATE requests SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, newStep, item.id);
         }
       })();
       
@@ -778,7 +778,7 @@ async function startServer() {
     }
     
     try {
-      const claim = db.prepare('SELECT status, step FROM claims WHERE id = ?').get(claimId) as { status: string; step: number };
+      const claim = await db.prepare('SELECT status, step FROM claims WHERE id = ?').get(claimId) as { status: string; step: number };
       if (!claim) return res.status(404).json({ error: "Claim not found" });
       
       // Role-based approval check (same as approve)
@@ -796,16 +796,16 @@ async function startServer() {
       }
 
       db.transaction(() => {
-        db.prepare('UPDATE claims SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('Rejected', claimId);
+        await db.prepare('UPDATE claims SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('Rejected', claimId);
         
-        const items = db.prepare('SELECT id FROM requests WHERE claim_id = ?').all(claimId) as { id: string }[];
+        const items = await db.prepare('SELECT id FROM requests WHERE claim_id = ?').all(claimId) as { id: string }[];
         for (const item of items) {
           db.prepare(`
             INSERT INTO approvals (id, request_id, approver_id, status, step, comments)
             VALUES (?, ?, ?, ?, ?, ?)
           `).run(`APR-${Math.floor(1000 + Math.random() * 9000)}`, item.id, user.id, 'Rejected', 99, comments || 'Rejected');
           
-          db.prepare('UPDATE requests SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('Rejected', item.id);
+          await db.prepare('UPDATE requests SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('Rejected', item.id);
         }
       })();
       
@@ -825,7 +825,7 @@ async function startServer() {
   });
 
   // Payment callback API - called by external finance system
-  app.post("/api/payments/callback", (req, res) => {
+  app.post("/api/payments/callback", async (req, res) => {
     const { claim_id, status, transaction_id, paid_at } = req.body;
     
     if (!claim_id || !status) {
@@ -833,7 +833,7 @@ async function startServer() {
     }
 
     try {
-      const claim = db.prepare('SELECT status FROM claims WHERE id = ?').get(claim_id) as { status: string } | undefined;
+      const claim = await db.prepare('SELECT status FROM claims WHERE id = ?').get(claim_id) as { status: string } | undefined;
       if (!claim) {
         return res.status(404).json({ error: "Claim not found" });
       }
@@ -850,12 +850,12 @@ async function startServer() {
       }
 
       db.transaction(() => {
-        db.prepare('UPDATE claims SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        await db.prepare('UPDATE claims SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
           .run(newStatus, newStep, claim_id);
         
-        const items = db.prepare('SELECT id FROM requests WHERE claim_id = ?').all(claim_id) as { id: string }[];
+        const items = await db.prepare('SELECT id FROM requests WHERE claim_id = ?').all(claim_id) as { id: string }[];
         for (const item of items) {
-          db.prepare('UPDATE requests SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          await db.prepare('UPDATE requests SET status = ?, step = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
             .run(newStatus, newStep, item.id);
           
           db.prepare(`
@@ -881,15 +881,15 @@ async function startServer() {
   });
 
   // Workflow APIs
-  app.get("/api/workflows", (req, res) => {
-    const workflows = db.prepare(`
+  app.get("/api/workflows", async (req, res) => {
+    const workflows = await db.prepare(`
       SELECT * FROM workflows ORDER BY created_at DESC
     `).all();
     res.json(workflows);
   });
 
-  app.get("/api/workflows/:id", (req, res) => {
-    const workflow = db.prepare(`
+  app.get("/api/workflows/:id", async (req, res) => {
+    const workflow = await db.prepare(`
       SELECT * FROM workflows WHERE id = ?
     `).get(req.params.id);
 
@@ -897,20 +897,20 @@ async function startServer() {
       return res.status(404).json({ error: "Workflow not found" });
     }
 
-    const nodes = db.prepare(`
+    const nodes = await db.prepare(`
       SELECT * FROM workflow_nodes WHERE workflow_id = ? ORDER BY position_x ASC
     `).all(req.params.id);
 
     res.json({ ...workflow, nodes });
   });
 
-  app.post("/api/workflows", (req, res) => {
+  app.post("/api/workflows", async (req, res) => {
     const { name, description, entity_type, nodes, edges, is_default } = req.body;
     const id = `wf-${Math.floor(1000 + Math.random() * 9000)}`;
     
     try {
       if (is_default) {
-        db.prepare('UPDATE workflows SET is_default = 0 WHERE entity_type = ?').run(entity_type);
+        await db.prepare('UPDATE workflows SET is_default = 0 WHERE entity_type = ?').run(entity_type);
       }
 
       db.prepare(`
@@ -943,13 +943,13 @@ async function startServer() {
     }
   });
 
-  app.put("/api/workflows/:id", (req, res) => {
+  app.put("/api/workflows/:id", async (req, res) => {
     const { name, description, entity_type, nodes, edges, is_default, is_active } = req.body;
     const workflowId = req.params.id;
     
     try {
       if (is_default) {
-        db.prepare('UPDATE workflows SET is_default = 0 WHERE entity_type = ?').run(entity_type);
+        await db.prepare('UPDATE workflows SET is_default = 0 WHERE entity_type = ?').run(entity_type);
       }
 
       db.prepare(`
@@ -958,7 +958,7 @@ async function startServer() {
         WHERE id = ?
       `).run(name, description, entity_type, is_default ? 1 : 0, is_active ? 1 : 0, JSON.stringify(nodes), JSON.stringify(edges), workflowId);
 
-      db.prepare('DELETE FROM workflow_nodes WHERE workflow_id = ?').run(workflowId);
+      await db.prepare('DELETE FROM workflow_nodes WHERE workflow_id = ?').run(workflowId);
 
       for (const node of nodes) {
         db.prepare(`
@@ -985,19 +985,19 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/workflows/:id", (req, res) => {
+  app.delete("/api/workflows/:id", async (req, res) => {
     const workflowId = req.params.id;
     
     try {
-      const workflow = db.prepare('SELECT is_default FROM workflows WHERE id = ?').get(workflowId) as { is_default: number };
+      const workflow = await db.prepare('SELECT is_default FROM workflows WHERE id = ?').get(workflowId) as { is_default: number };
       if (!workflow) return res.status(404).json({ error: "Workflow not found" });
       
       if (workflow.is_default) {
         return res.status(400).json({ error: "Cannot delete default workflow" });
       }
 
-      db.prepare('DELETE FROM workflow_nodes WHERE workflow_id = ?').run(workflowId);
-      db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
+      await db.prepare('DELETE FROM workflow_nodes WHERE workflow_id = ?').run(workflowId);
+      await db.prepare('DELETE FROM workflows WHERE id = ?').run(workflowId);
       
       res.json({ success: true });
     } catch (error) {
@@ -1006,14 +1006,14 @@ async function startServer() {
     }
   });
 
-  app.get("/api/workflows/:id/nodes", (req, res) => {
-    const nodes = db.prepare(`
+  app.get("/api/workflows/:id/nodes", async (req, res) => {
+    const nodes = await db.prepare(`
       SELECT * FROM workflow_nodes WHERE workflow_id = ? ORDER BY position_x ASC
     `).all(req.params.id);
     res.json(nodes);
   });
 
-  app.get("/api/workflow/todos", (req, res) => {
+  app.get("/api/workflow/todos", async (req, res) => {
     const userId = req.query.userId as string;
     const userRole = req.query.role as string;
     
@@ -1021,7 +1021,7 @@ async function startServer() {
       return res.status(400).json({ error: "userId and role are required" });
     }
 
-    const pendingRequests = db.prepare(`
+    const pendingRequests = await db.prepare(`
       SELECT r.*, u.name as claimant_name, u.department, c.description as claim_description,
              wn.label as current_node_label, wn.approver_role
       FROM requests r
@@ -1042,10 +1042,10 @@ async function startServer() {
     res.json(filteredRequests);
   });
 
-  app.get("/api/workflow/instance/:entityType/:entityId", (req, res) => {
+  app.get("/api/workflow/instance/:entityType/:entityId", async (req, res) => {
     const { entityType, entityId } = req.params;
     
-    const instance = db.prepare(`
+    const instance = await db.prepare(`
       SELECT wi.*, w.name as workflow_name, w.nodes, w.edges
       FROM workflow_instances wi
       JOIN workflows w ON wi.workflow_id = w.id
@@ -1056,7 +1056,7 @@ async function startServer() {
       return res.json(null);
     }
 
-    const history = db.prepare(`
+    const history = await db.prepare(`
       SELECT wh.*, u.name as actor_name
       FROM workflow_history wh
       LEFT JOIN users u ON wh.actor_id = u.id
@@ -1067,8 +1067,8 @@ async function startServer() {
     res.json({ ...instance, history });
   });
 
-  app.get("/api/workflows/:id/bpmn", (req, res) => {
-    const workflow = db.prepare(`
+  app.get("/api/workflows/:id/bpmn", async (req, res) => {
+    const workflow = await db.prepare(`
       SELECT bpmn_xml, name FROM workflows WHERE id = ?
     `).get(req.params.id) as { bpmn_xml: string; name: string } | undefined;
 
@@ -1081,7 +1081,7 @@ async function startServer() {
     res.send(workflow.bpmn_xml);
   });
 
-  app.post("/api/workflows/:id/deploy", (req, res) => {
+  app.post("/api/workflows/:id/deploy", async (req, res) => {
     const workflowId = req.params.id;
     const { bpmn_xml } = req.body;
 
@@ -1090,7 +1090,7 @@ async function startServer() {
     }
 
     try {
-      const currentVersion = db.prepare('SELECT version FROM workflows WHERE id = ?').get(workflowId) as { version: number } | undefined;
+      const currentVersion = await db.prepare('SELECT version FROM workflows WHERE id = ?').get(workflowId) as { version: number } | undefined;
       const newVersion = (currentVersion?.version || 0) + 1;
 
       db.prepare(`
@@ -1106,7 +1106,7 @@ async function startServer() {
 
   // Notification APIs
   app.get("/api/notifications", authenticateToken, (req: any, res: any) => {
-    const notifications = db.prepare(`
+    const notifications = await db.prepare(`
       SELECT * FROM notifications 
       WHERE user_id = ? 
       ORDER BY created_at DESC 
@@ -1116,7 +1116,7 @@ async function startServer() {
   });
 
   app.get("/api/notifications/unread-count", authenticateToken, (req: any, res: any) => {
-    const result = db.prepare(`
+    const result = await db.prepare(`
       SELECT COUNT(*) as count FROM notifications 
       WHERE user_id = ? AND is_read = 0
     `).get(req.user.userId) as { count: number };
@@ -1124,20 +1124,20 @@ async function startServer() {
   });
 
   app.post("/api/notifications/:id/read", authenticateToken, (req: any, res: any) => {
-    db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?')
+    await db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?')
       .run(req.params.id, req.user.userId);
     res.json({ success: true });
   });
 
   app.post("/api/notifications/read-all", authenticateToken, (req: any, res: any) => {
-    db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?')
+    await db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?')
       .run(req.user.userId);
     res.json({ success: true });
   });
 
   // Organization APIs
   app.get("/api/org-chart", authenticateToken, (req: any, res: any) => {
-    const orgChart = db.prepare(`
+    const orgChart = await db.prepare(`
       SELECT 
         d.id, d.name as department_name, d.code,
         u.id as manager_id, u.name as manager_name, u.email as manager_email,
@@ -1152,12 +1152,12 @@ async function startServer() {
   app.get("/api/users/:id/approvers", authenticateToken, (req: any, res: any) => {
     const userId = req.params.id;
     
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const approvers = db.prepare(`
+    const approvers = await db.prepare(`
       SELECT * FROM approval_levels
       WHERE workflow_id = 'wf-1'
       ORDER BY level_order ASC
@@ -1169,21 +1169,21 @@ async function startServer() {
       let approver = null;
       
       if (level.approver_type === 'manager') {
-        const manager = db.prepare('SELECT * FROM users WHERE id = ?').get(user.manager_id) as any;
+        const manager = await db.prepare('SELECT * FROM users WHERE id = ?').get(user.manager_id) as any;
         approver = manager;
       } else if (level.approver_type === 'condition') {
         if (level.condition_type === 'amount_above' && level.condition_value) {
           const amount = parseFloat(req.query.claimAmount as string) || 0;
           if (amount >= level.condition_value) {
             if (level.approver_role) {
-              approver = db.prepare('SELECT * FROM users WHERE role = ? AND is_active = 1').get(level.approver_role) as any;
+              approver = await db.prepare('SELECT * FROM users WHERE role = ? AND is_active = 1').get(level.approver_role) as any;
             } else if (level.approver_department) {
-              approver = db.prepare('SELECT * FROM users WHERE department = ? AND is_active = 1').get(level.approver_department) as any;
+              approver = await db.prepare('SELECT * FROM users WHERE department = ? AND is_active = 1').get(level.approver_department) as any;
             }
           }
         }
       } else if (level.approver_type === 'specific' && level.approver_user_id) {
-        approver = db.prepare('SELECT * FROM users WHERE id = ?').get(level.approver_user_id) as any;
+        approver = await db.prepare('SELECT * FROM users WHERE id = ?').get(level.approver_user_id) as any;
       }
 
       if (approver) {
@@ -1228,7 +1228,7 @@ async function startServer() {
 
     for (const emp of employees) {
       try {
-        const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(emp.email);
+        const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(emp.email);
         
         if (existing) {
           db.prepare(`
@@ -1267,7 +1267,7 @@ async function startServer() {
   });
 
   app.get("/api/hr/sync-history", authenticateToken, (req: any, res: any) => {
-    const history = db.prepare(`
+    const history = await db.prepare(`
       SELECT * FROM hr_sync_log 
       ORDER BY created_at DESC 
       LIMIT 20
@@ -1304,7 +1304,7 @@ async function startServer() {
     }
 
     try {
-      const instance = db.prepare(`
+      const instance = await db.prepare(`
         INSERT INTO workflow_instances (id, workflow_id, entity_type, entity_id, claimant_id, current_node_id, status, variables)
         VALUES (?, ?, ?, ?, ?, 'start', 'running', ?)
       `).run(
@@ -1316,13 +1316,13 @@ async function startServer() {
         JSON.stringify(variables || {})
       );
 
-      const workflow = db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflow_id) as any;
+      const workflow = await db.prepare('SELECT * FROM workflows WHERE id = ?').get(workflow_id) as any;
       const nodes = JSON.parse(workflow.nodes || '[]');
       const edges = JSON.parse(workflow.edges || '[]');
       
       const firstApprovalNode = nodes.find((n: any) => n.data?.nodeType === 'approval');
       if (firstApprovalNode) {
-        const claimant = db.prepare('SELECT manager_id FROM users WHERE id = ?').get(claimant_id) as any;
+        const claimant = await db.prepare('SELECT manager_id FROM users WHERE id = ?').get(claimant_id) as any;
         if (claimant?.manager_id) {
           const taskId = `task_${Date.now()}`;
           db.prepare(`
@@ -1386,7 +1386,7 @@ async function startServer() {
     const approverId = req.user.userId;
 
     try {
-      const task = db.prepare('SELECT * FROM workflow_tasks WHERE id = ?').get(taskId) as any;
+      const task = await db.prepare('SELECT * FROM workflow_tasks WHERE id = ?').get(taskId) as any;
       if (!task) {
         return res.status(404).json({ error: "Task not found" });
       }
@@ -1399,8 +1399,8 @@ async function startServer() {
         UPDATE workflow_tasks SET status = 'approved', comments = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?
       `).run(comments || null, taskId);
 
-      const instance = db.prepare('SELECT * FROM workflow_instances WHERE id = ?').get(task.instance_id) as any;
-      const workflow = db.prepare('SELECT * FROM workflows WHERE id = ?').get(instance.workflow_id) as any;
+      const instance = await db.prepare('SELECT * FROM workflow_instances WHERE id = ?').get(task.instance_id) as any;
+      const workflow = await db.prepare('SELECT * FROM workflows WHERE id = ?').get(instance.workflow_id) as any;
       const nodes = JSON.parse(workflow.nodes || '[]');
       const edges = JSON.parse(workflow.edges || '[]');
 
@@ -1410,7 +1410,7 @@ async function startServer() {
       if (nextEdge) {
         const nextNode = nodes.find((n: any) => n.id === nextEdge.target);
         if (nextNode && nextNode.data?.nodeType === 'approval') {
-          const claimant = db.prepare('SELECT manager_id FROM users WHERE id = ?').get(instance.claimant_id) as any;
+          const claimant = await db.prepare('SELECT manager_id FROM users WHERE id = ?').get(instance.claimant_id) as any;
           
           const nextTaskId = `task_${Date.now()}`;
           db.prepare(`
@@ -1467,7 +1467,7 @@ async function startServer() {
     const approverId = req.user.userId;
 
     try {
-      const task = db.prepare('SELECT * FROM workflow_tasks WHERE id = ?').get(taskId) as any;
+      const task = await db.prepare('SELECT * FROM workflow_tasks WHERE id = ?').get(taskId) as any;
       if (!task) {
         return res.status(404).json({ error: "Task not found" });
       }
@@ -1476,7 +1476,7 @@ async function startServer() {
         UPDATE workflow_tasks SET status = 'rejected', comments = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?
       `).run(comments || 'Rejected', taskId);
 
-      const instance = db.prepare('SELECT * FROM workflow_instances WHERE id = ?').get(task.instance_id) as any;
+      const instance = await db.prepare('SELECT * FROM workflow_instances WHERE id = ?').get(task.instance_id) as any;
       
       db.prepare(`
         UPDATE workflow_instances SET status = 'cancelled', completed_at = CURRENT_TIMESTAMP WHERE id = ?
@@ -1537,10 +1537,10 @@ async function startServer() {
   app.get("/api/workflow/instances/:id/history", authenticateToken, (req: any, res: any) => {
     const id = req.params.id;
 
-    let instance = db.prepare('SELECT * FROM workflow_instances WHERE id = ?').get(id) as any;
+    let instance = await db.prepare('SELECT * FROM workflow_instances WHERE id = ?').get(id) as any;
     
     if (!instance) {
-      instance = db.prepare('SELECT * FROM workflow_instances WHERE entity_id = ? ORDER BY started_at DESC LIMIT 1').get(id) as any;
+      instance = await db.prepare('SELECT * FROM workflow_instances WHERE entity_id = ? ORDER BY started_at DESC LIMIT 1').get(id) as any;
     }
     
     if (!instance) {
@@ -1562,12 +1562,12 @@ async function startServer() {
     const claimantId = req.query.claimant_id as string;
     const amount = parseFloat(req.query.amount as string) || 0;
 
-    const claimant = db.prepare('SELECT * FROM users WHERE id = ?').get(claimantId) as any;
+    const claimant = await db.prepare('SELECT * FROM users WHERE id = ?').get(claimantId) as any;
     if (!claimant) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const workflow = db.prepare(`
+    const workflow = await db.prepare(`
       SELECT * FROM workflows WHERE entity_type = 'claim' AND is_active = 1 ORDER BY is_default DESC LIMIT 1
     `).get() as any;
 
@@ -1593,12 +1593,12 @@ async function startServer() {
         
         if (node.data?.approverRole === 'Manager' || !node.data?.approverRole) {
           if (claimant.manager_id) {
-            approver = db.prepare('SELECT * FROM users WHERE id = ?').get(claimant.manager_id) as any;
+            approver = await db.prepare('SELECT * FROM users WHERE id = ?').get(claimant.manager_id) as any;
           }
         } else if (node.data?.approverRole) {
-          approver = db.prepare('SELECT * FROM users WHERE role = ? AND is_active = 1').get(node.data.approverRole) as any;
+          approver = await db.prepare('SELECT * FROM users WHERE role = ? AND is_active = 1').get(node.data.approverRole) as any;
         } else if (node.data?.approverDepartment) {
-          approver = db.prepare('SELECT * FROM users WHERE department = ? AND is_active = 1').get(node.data.approverDepartment) as any;
+          approver = await db.prepare('SELECT * FROM users WHERE department = ? AND is_active = 1').get(node.data.approverDepartment) as any;
         }
 
         if (approver) {

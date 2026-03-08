@@ -5,6 +5,7 @@ import Database from 'better-sqlite3';
 const hashPassword = (password: string) => bcrypt.hashSync(password, 10);
 
 let db: any;
+let isTursoDb = false;
 
 export async function initDatabase(): Promise<typeof db> {
   const tursoUrl = process.env.TURSO_DB_URL;
@@ -13,6 +14,7 @@ export async function initDatabase(): Promise<typeof db> {
 
   if (isTurso) {
     console.log('Using Turso database:', tursoUrl);
+    isTursoDb = true;
     try {
       const { createClient } = await import('@libsql/client');
       
@@ -21,40 +23,55 @@ export async function initDatabase(): Promise<typeof db> {
         authToken: tursoToken
       });
       
+      const wrapAsync = (fn: Function) => {
+        return (...args: any[]) => {
+          const result = fn(...args);
+          if (result && typeof result.then === 'function') {
+            return result;
+          }
+          return Promise.resolve(result);
+        };
+      };
+
+      const createStatement = (sql: string) => ({
+        run: wrapAsync((...params: any[]) => libsql.execute({ sql, args: params })),
+        get: wrapAsync((...params: any[]) => libsql.execute({ sql, args: params }).then((r: any) => r.rows[0] || null)),
+        all: wrapAsync((...params: any[]) => libsql.execute({ sql, args: params }).then((r: any) => r.rows))
+      });
+
       db = {
-        prepare: (sql: string) => ({
-          run: (...params: any[]) => libsql.execute({ sql, args: params }),
-          get: (...params: any[]) => libsql.execute({ sql, args: params }).then(r => r.rows[0] || null),
-          all: (...params: any[]) => libsql.execute({ sql, args: params }).then(r => r.rows)
-        }),
-        exec: (sql: string) => {
+        prepare: (sql: string) => createStatement(sql),
+        exec: async (sql: string) => {
           const statements = sql.split(';').filter((s: string) => s.trim());
-          return Promise.all(statements.map(stmt => stmt.trim() ? libsql.execute({ sql: stmt }) : null));
+          await Promise.all(statements.map(stmt => stmt.trim() ? libsql.execute({ sql: stmt }) : null));
         },
         transaction: (fn: () => void) => ({
-          run: (...params: any[]) => {
-            return libsql.execute({ sql: 'BEGIN' }).then(() => {
-              try {
-                fn();
-                return libsql.execute({ sql: 'COMMIT' });
-              } catch (e) {
-                return libsql.execute({ sql: 'ROLLBACK' }).then(() => { throw e; });
-              }
-            });
+          run: async (...params: any[]) => {
+            await libsql.execute({ sql: 'BEGIN' });
+            try {
+              fn();
+              return libsql.execute({ sql: 'COMMIT' });
+            } catch (e) {
+              await libsql.execute({ sql: 'ROLLBACK' });
+              throw e;
+            }
           }
         }),
-        _client: libsql
+        _client: libsql,
+        _isTurso: true
       };
       
       return db;
     } catch (error) {
       console.error('Failed to connect to Turso, falling back to SQLite:', error);
+      isTursoDb = false;
     }
   }
 
   const dbPath = path.resolve(process.cwd(), 'data.db');
   db = new Database(dbPath);
   console.log('Using local SQLite database:', dbPath);
+  isTursoDb = false;
   return db;
 }
 
@@ -63,6 +80,10 @@ export function getDb() {
     throw new Error('Database not initialized. Call initDatabase() first.');
   }
   return db;
+}
+
+export function isTurso(): boolean {
+  return isTursoDb;
 }
 
 export async function initDb(): Promise<void> {
