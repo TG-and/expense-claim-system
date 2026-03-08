@@ -104,7 +104,14 @@ export async function initDb(): Promise<void> {
 
   console.log('Creating tables...');
 
-  const schema = `
+  try {
+    // Check if tables exist first
+    const tablesExist = await db.prepare('SELECT name FROM sqlite_master WHERE type="table" AND name="users"').get();
+    console.log('Tables exist check:', !!tablesExist);
+    
+    if (!tablesExist) {
+      console.log('Creating schema...');
+      const schema = `
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -300,11 +307,21 @@ export async function initDb(): Promise<void> {
     );
   `;
 
-  if (isTurso && db._client) {
-    await db.exec(schema);
-  } else {
-    db.exec(schema);
+      console.log('Executing schema...');
+      if (isTurso && db._client) {
+        await db.exec(schema);
+      } else {
+        db.exec(schema);
+      }
+      console.log('Schema created successfully');
+    } else {
+      console.log('Tables already exist, skipping schema creation');
+    }
+  } catch (error) {
+    console.error('Error creating schema:', error);
   }
+
+  console.log('Checking for seed data...');
 
   const existingUsers = isTurso && db._client 
     ? await db.prepare('SELECT COUNT(*) as count FROM users').get()

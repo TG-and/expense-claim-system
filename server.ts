@@ -31,13 +31,16 @@ const upload = multer({ storage: storage });
 let dbInstance: any;
 let app: express.Application;
 
+let dbInitialized = false;
+
 async function getDbInstance(forceInit = false) {
-  if (!dbInstance || forceInit) {
+  if (!dbInstance || forceInit || !dbInitialized) {
     console.log('Initializing database...');
     try {
       dbInstance = await initDatabase();
       console.log('Running initDb...');
       await initDb();
+      dbInitialized = true;
       console.log('Database initialized successfully');
     } catch (error) {
       console.error('Database initialization error:', error);
