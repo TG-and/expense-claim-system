@@ -31,10 +31,18 @@ const upload = multer({ storage: storage });
 let dbInstance: any;
 let app: express.Application;
 
-async function getDbInstance() {
-  if (!dbInstance) {
-    dbInstance = await initDatabase();
-    await initDb();
+async function getDbInstance(forceInit = false) {
+  if (!dbInstance || forceInit) {
+    console.log('Initializing database...');
+    try {
+      dbInstance = await initDatabase();
+      console.log('Running initDb...');
+      await initDb();
+      console.log('Database initialized successfully');
+    } catch (error) {
+      console.error('Database initialization error:', error);
+      throw error;
+    }
   }
   return dbInstance;
 }
@@ -78,10 +86,14 @@ function createApp() {
 
   app.post("/api/debug/reseed", async (req, res) => {
     try {
-      await initDb();
-      res.json({ success: true, message: "Database reseeded" });
+      // Force reinitialize database
+      dbInstance = null;
+      await getDbInstance(true);
+      console.log('Database reseeded successfully');
+      res.json({ success: true, message: "Database reseeded successfully" });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error('Reseed error:', error);
+      res.status(500).json({ error: error.message, stack: error.stack });
     }
   });
 

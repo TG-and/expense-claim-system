@@ -90,6 +90,8 @@ export async function initDb(): Promise<void> {
   const tursoUrl = process.env.TURSO_DB_URL;
   const tursoToken = process.env.TURSO_AUTH_TOKEN;
   const isTurso = tursoUrl !== undefined && tursoToken !== undefined;
+  
+  console.log('initDb called, isTurso:', isTurso, 'db exists:', !!db);
 
   if (!db) {
     if (isTurso) {
@@ -99,6 +101,8 @@ export async function initDb(): Promise<void> {
     const dbPath = path.resolve(process.cwd(), 'data.db');
     db = new Database(dbPath);
   }
+
+  console.log('Creating tables...');
 
   const schema = `
     CREATE TABLE IF NOT EXISTS users (
